@@ -44,7 +44,7 @@ func (p *Passkey) beginRegistration(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    t,
-		Path:     pathRegisterBegin,
+		Path:     "/", // TODO: it probably shouldn't be root
 		MaxAge:   registerMaxAge,
 		Secure:   true,
 		HttpOnly: true,
@@ -90,7 +90,7 @@ func (p *Passkey) finishRegistration(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// If creation was successful, store the credential object
-	user.AddCredential(credential)
+	user.PutCredential(*credential)
 	p.userStore.SaveUser(user)
 
 	p.sessionStore.DeleteSession(sid.Value)
@@ -135,7 +135,7 @@ func (p *Passkey) beginLogin(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    t,
-		Path:     pathLoginBegin,
+		Path:     "/", // TODO: it probably shouldn't be root
 		MaxAge:   loginMaxAge,
 		Secure:   true,
 		HttpOnly: true,
@@ -177,7 +177,7 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// If login was successful, update the credential object
-	user.UpdateCredential(credential)
+	user.PutCredential(*credential)
 	p.userStore.SaveUser(user)
 
 	// Delete the login session data

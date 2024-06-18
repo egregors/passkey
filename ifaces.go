@@ -9,15 +9,9 @@ type Logger interface {
 	Warnf(format string, v ...any)
 }
 
-type Metrics interface {
-	Count(name string, value int64)
-	Increment(name string)
-}
-
 type User interface {
 	webauthn.User
-	AddCredential(*webauthn.Credential)
-	UpdateCredential(*webauthn.Credential)
+	PutCredential(webauthn.Credential)
 }
 
 type UserStore interface {

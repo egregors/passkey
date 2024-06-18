@@ -13,7 +13,6 @@ const (
 	pathRegisterFinish = "/passkey/registerFinish"
 	pathLoginBegin     = "/passkey/loginBegin"
 	pathLoginFinish    = "/passkey/loginFinish"
-	pathStatic         = "/passkey/static"
 
 	registerMaxAge = 3600
 	loginMaxAge    = 3600
@@ -22,9 +21,11 @@ const (
 )
 
 type Config struct {
+	// TODO: maybe I shouldn't expose webauthn.Config here
 	WebauthnConfig *webauthn.Config
 	UserStore
 	SessionStore
+	// FIXME: this should be a time.Duration
 	SessionMaxAge int
 }
 
@@ -38,16 +39,22 @@ type Passkey struct {
 
 	sessionMaxAge int
 
-	mux *http.ServeMux
+	mux       *http.ServeMux
+	staticMux *http.ServeMux
 
 	l Logger
 }
 
 func New(cfg Config, opts ...Option) (*Passkey, error) {
 	p := &Passkey{
-		cfg:           cfg,
-		mux:           http.NewServeMux(),
+		cfg: cfg,
+
+		userStore:     cfg.UserStore,
+		sessionStore:  cfg.SessionStore,
 		sessionMaxAge: cfg.SessionMaxAge,
+
+		mux:       http.NewServeMux(),
+		staticMux: http.NewServeMux(),
 	}
 
 	// TODO: setup default options
@@ -79,16 +86,20 @@ func (p *Passkey) setupWebAuthn() error {
 }
 
 func (p *Passkey) setupRoutes() (mux *http.ServeMux) {
-	mux.HandleFunc(pathRegisterBegin, p.beginRegistration)
-	mux.HandleFunc(pathRegisterFinish, p.finishRegistration)
-	mux.HandleFunc(pathLoginBegin, p.beginLogin)
-	mux.HandleFunc(pathLoginFinish, p.finishLogin)
-	// TODO: fix directory path
-	mux.Handle(pathStatic, http.FileServer(http.Dir("./web")))
+	p.mux.HandleFunc(pathRegisterBegin, p.beginRegistration)
+	p.mux.HandleFunc(pathRegisterFinish, p.finishRegistration)
+	p.mux.HandleFunc(pathLoginBegin, p.beginLogin)
+	p.mux.HandleFunc(pathLoginFinish, p.finishLogin)
+
+	p.staticMux.Handle("/", http.FileServer(http.Dir("./static")))
 
 	return mux
 }
 
-func (p *Passkey) Routes() *http.ServeMux {
-	return p.mux
+func (p *Passkey) MountRoutes(mux *http.ServeMux, path string) {
+	mux.Handle(path, http.StripPrefix(path[:len(path)-1], p.mux))
+}
+
+func (p *Passkey) MountStaticRoutes(mux *http.ServeMux, path string) {
+	mux.Handle(path, http.StripPrefix(path[:len(path)-1], p.staticMux))
 }
