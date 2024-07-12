@@ -1,41 +1,79 @@
-# Passkey
 
-Passkey is a simple and secure authentication library for Go that uses WebAuthn for user registration and login.
+<div align="center">
+    <h1>🔑 passkey</h1>
+
+`passkey` is a Go library for implementing WebAuthn services, providing
+</div>
+
+* user management
+* credential handling
+* session management
+* middleware support
+
+It allows for secure registration and login using WebAuthn. Additionally, an example usage of the library is provided.
+
+---
+
+## Table of Contents
+
+- [Features](#features)
+- [Installation](#installation)
+- [Usage](#usage)
+    - [Library Usage](#library-usage)
+    - [Example Application](#example-application)
+- [API](#api)
+- [License](#license)
 
 ## Features
 
-- User registration and login using WebAuthn.
-- Simple and clean user interface.
-- Secure authentication using biometrics or security keys.
+- **User Management**: Handle user information and credentials.
+- **WebAuthn Integration**: Easily integrate with WebAuthn for authentication.
+- **Session Management**: Manage user sessions securely.
+- **Middleware Support**: Implement middleware for authenticated routes.
 
-## Prerequisites
-
-- Go
-- A modern web browser that supports WebAuthn.
+> [!WARNING]  
+> Stable version is not released yet. The API and the lib are under development.
 
 ## Installation
 
-Clone the repository:
+To get started, you need to have Go installed on your machine. If you don't have it installed,
+you can download it from [here](https://golang.org/dl/).
+
+Install the library using `go get`:
 
 ```bash
-git clone https://github.com/egregors/passkey.git
-```
-
-Navigate to the project directory:
-
-```bash
-cd passkey
-```
-
-Install the dependencies:
-
-```bash
-go mod download
+go get github.com/egregors/passkey
 ```
 
 ## Usage
 
-Sure, here's an example of how you can use the `passkey` library in a Go project:
+### Library Usage
+
+To add a passkey service to your application, you need to do two things:
+
+#### Implement the `UserStore` and `SessionStore` interfaces
+
+```go
+type User interface {
+  webauthn.User
+  PutCredential(webauthn.Credential)
+}
+
+type UserStore interface {
+  GetOrCreateUser(userName string) User
+  SaveUser(User)
+}
+
+type SessionStore interface {
+  GenSessionID() (string, error)
+  GetSession(token string) (webauthn.SessionData, bool)
+  SaveSession(token string, data webauthn.SessionData)
+  DeleteSession(token string)
+}
+
+```
+
+#### Create a new `Passkey` instance and mount the routes
 
 ```go
 package main
@@ -43,6 +81,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/egregors/passkey"
 	"github.com/go-webauthn/webauthn/webauthn"
@@ -54,10 +93,8 @@ func main() {
 	port := ":8080"
 	origin := fmt.Sprintf("%s://%s%s", proto, host, port)
 
-	// Create a new storage for users and sessions
 	storage := NewStorage()
 
-	// Initialize the passkey library
 	pkey, err := passkey.New(
 		passkey.Config{
 			WebauthnConfig: &webauthn.Config{
@@ -67,7 +104,7 @@ func main() {
 			},
 			UserStore:     storage,
 			SessionStore:  storage,
-			SessionMaxAge: 3600,
+			SessionMaxAge: 60 * time.Minute,
 		},
 		passkey.WithLogger(NewLogger()),
 	)
@@ -75,63 +112,68 @@ func main() {
 		panic(err)
 	}
 
-	// Create a new HTTP ServeMux
 	mux := http.NewServeMux()
-
-	// Mount the passkey routes
 	pkey.MountRoutes(mux, "/api/")
 	pkey.MountStaticRoutes(mux, "/static/")
 
-	// Serve static files
 	mux.Handle("/", http.FileServer(http.Dir("./_example/web")))
 
-	// Create a new HTTP ServeMux for private routes
 	privateMux := http.NewServeMux()
 	privateMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// render html from web/private.html
 		http.ServeFile(w, r, "./_example/web/private.html")
 	})
-
-	// Add authentication to the private routes
 	withAuth := passkey.Auth(storage)
 	mux.Handle("/private", withAuth(privateMux))
 
-	// Start the server
 	if err := http.ListenAndServe(port, mux); err != nil {
 		panic(err)
 	}
 }
 ```
 
-In this example, we're creating a new instance of `passkey` with a configuration that includes a `WebauthnConfig`,
-a `UserStore`, a `SessionStore`, and a `SessionMaxAge`. We're also adding a logger to the `passkey` instance.
+You can optionally provide a logger to the `New` function using the `WithLogger` option.
 
-We then create a new HTTP server and mount the `passkey` routes to it. We also serve static files from a directory.
+### Example Application
 
-For private routes, we create a new HTTP server, add a route to it, and then add authentication to these routes using
-the `Auth` function from `passkey`.
+The library comes with an example application that demonstrates how to use the library. To run the example application,
+navigate to the `_example` directory and run the following command:
 
-Finally, we start the server.
+```bash
+make run
+```
 
-Please replace `NewStorage` and `NewLogger` with your own implementations.
+This will start the example application on http://localhost:8080.
 
-## API Endpoints
+## API
 
-| Endpoint                  | Description                        | Required Parameters       |
-|---------------------------|------------------------------------|---------------------------|
-| `/passkey/registerBegin`  | Starts the registration process.   | Username                  |
-| `/passkey/registerFinish` | Finishes the registration process. | Session ID, User Response |
-| `/passkey/loginBegin`     | Starts the login process.          | Username                  |
-| `/passkey/loginFinish`    | Finishes the login process.        | Session ID, User Response |
+| Method                                               | Description                                              |
+|------------------------------------------------------|----------------------------------------------------------|
+| `New(cfg Config, opts ...Option) (*Passkey, error)`  | Creates a new Passkey instance.                          |
+| `MountRoutes(mux *http.ServeMux, path string)`       | Mounts the Passkey routes onto a given HTTP multiplexer. |
+| `MountStaticRoutes(mux *http.ServeMux, path string)` | Mounts the static routes onto a given HTTP multiplexer.  |
 
-## Middleware
+### Middleware
 
-- `Auth`: Implements a middleware handler for adding passkey http auth to a route.
+The `Auth` function provides middleware for adding passkey HTTP authentication to routes.
 
-## Contributing
+```go
+func Auth(sessionStore SessionStore) func (next http.Handler) http.Handler
+```
 
-Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
+You can use it to protect routes that require authentication:
+
+```go
+mux := http.NewServeMux()
+mux.HandleFunc("/private", func (w http.ResponseWriter, r *http.Request) {
+// render html from web/private.html
+http.ServeFile(w, r, "./_example/web/private.html")
+})
+withAuth := passkey.Auth(storage)
+mux.Handle("/private", withAuth(privateMux))
+```
 
 ## License
 
-[MIT](https://choosealicense.com/licenses/mit/)
+This project is licensed under the MIT License - see
+the [LICENSE](https://github.com/egregors/passkey/blob/main/LICENSE) file for details.
