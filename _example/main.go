@@ -48,7 +48,7 @@ func main() {
 	withAuth := passkey.Auth(storage)
 	mux.Handle("/private", withAuth(privateMux))
 
-	fmt.Printf("Listening on %s\n", port)
+	fmt.Printf("Listening on %s\n", origin)
 	if err := http.ListenAndServe(port, mux); err != nil {
 		panic(err)
 	}

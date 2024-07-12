@@ -84,15 +84,13 @@ func (p *Passkey) setupWebAuthn() error {
 	return nil
 }
 
-func (p *Passkey) setupRoutes() (mux *http.ServeMux) {
+func (p *Passkey) setupRoutes() {
 	p.mux.HandleFunc(pathRegisterBegin, p.beginRegistration)
 	p.mux.HandleFunc(pathRegisterFinish, p.finishRegistration)
 	p.mux.HandleFunc(pathLoginBegin, p.beginLogin)
 	p.mux.HandleFunc(pathLoginFinish, p.finishLogin)
 
 	p.staticMux.Handle("/", http.FileServer(http.Dir("./static")))
-
-	return mux
 }
 
 func (p *Passkey) MountRoutes(mux *http.ServeMux, path string) {

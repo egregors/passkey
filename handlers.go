@@ -231,7 +231,7 @@ func JSONResponse(w http.ResponseWriter, data interface{}, status int) {
 }
 
 // deleteCookie deletes a cookie
-func deleteCookie(w http.ResponseWriter, name string) {
+func deleteCookie(w http.ResponseWriter, name string) { //nolint:unparam // it's ok here
 	http.SetCookie(w, &http.Cookie{
 		Name:   name,
 		Value:  "",
