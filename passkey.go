@@ -56,11 +56,7 @@ func New(cfg Config, opts ...Option) (*Passkey, error) {
 		staticMux: http.NewServeMux(),
 	}
 
-	// TODO: setup default options
-	for _, opt := range opts {
-		opt(p)
-	}
-
+	p.setupOptions(opts)
 	p.setupRoutes()
 
 	err := p.setupWebAuthn()
@@ -69,6 +65,23 @@ func New(cfg Config, opts ...Option) (*Passkey, error) {
 	}
 
 	return p, nil
+}
+
+func (p *Passkey) setupOptions(opts []Option) {
+	setupDefaultOptions(p)
+	for _, opts := range opts {
+		opts(p)
+	}
+}
+
+func setupDefaultOptions(p *Passkey) {
+	defaultOpts := []Option{
+		WithLogger(&NullLogger{}),
+	}
+
+	for _, opt := range defaultOpts {
+		opt(p)
+	}
 }
 
 func (p *Passkey) setupWebAuthn() error {

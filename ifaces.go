@@ -25,3 +25,11 @@ type SessionStore interface {
 	SaveSession(token string, data webauthn.SessionData)
 	DeleteSession(token string)
 }
+
+// NullLogger is a logger that does nothing
+type NullLogger struct{}
+
+func (n NullLogger) Errorf(_ string, _ ...any) {}
+func (n NullLogger) Debugf(_ string, _ ...any) {}
+func (n NullLogger) Infof(_ string, _ ...any)  {}
+func (n NullLogger) Warnf(_ string, _ ...any)  {}
