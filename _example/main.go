@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/egregors/passkey"
 	"github.com/go-webauthn/webauthn/webauthn"
@@ -15,6 +16,7 @@ func main() {
 	origin := fmt.Sprintf("%s://%s%s", proto, host, port)
 
 	storage := NewStorage()
+
 	pkey, err := passkey.New(
 		passkey.Config{
 			WebauthnConfig: &webauthn.Config{
@@ -24,7 +26,7 @@ func main() {
 			},
 			UserStore:     storage,
 			SessionStore:  storage,
-			SessionMaxAge: 3600,
+			SessionMaxAge: 60 * time.Minute,
 		},
 		passkey.WithLogger(NewLogger()),
 	)
@@ -46,6 +48,7 @@ func main() {
 	withAuth := passkey.Auth(storage)
 	mux.Handle("/private", withAuth(privateMux))
 
+	fmt.Printf("Listening on %s\n", port)
 	if err := http.ListenAndServe(port, mux); err != nil {
 		panic(err)
 	}

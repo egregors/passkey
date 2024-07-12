@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/go-webauthn/webauthn/webauthn"
 )
@@ -21,12 +22,10 @@ const (
 )
 
 type Config struct {
-	// TODO: maybe I shouldn't expose webauthn.Config here
 	WebauthnConfig *webauthn.Config
 	UserStore
 	SessionStore
-	// FIXME: this should be a time.Duration
-	SessionMaxAge int
+	SessionMaxAge time.Duration
 }
 
 type Passkey struct {
@@ -37,7 +36,7 @@ type Passkey struct {
 	userStore    UserStore
 	sessionStore SessionStore
 
-	sessionMaxAge int
+	sessionMaxAge time.Duration
 
 	mux       *http.ServeMux
 	staticMux *http.ServeMux

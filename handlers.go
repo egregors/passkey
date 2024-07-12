@@ -200,7 +200,7 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 		Name:     sessionCookieName,
 		Value:    t,
 		Path:     "/",
-		MaxAge:   p.sessionMaxAge,
+		MaxAge:   int(p.sessionMaxAge.Seconds()),
 		Secure:   true,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode, // TODO: SameSiteStrictMode maybe?
