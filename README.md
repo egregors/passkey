@@ -173,6 +173,16 @@ withAuth := passkey.Auth(storage)
 mux.Handle("/private", withAuth(privateMux))
 ```
 
+## Development
+
+### Generate Mocks
+
+Use [mockery](https://github.com/vektra/mockery) to generate mocks for interfaces.
+
+```bash 
+mockery
+```
+
 ## License
 
 This project is licensed under the MIT License - see

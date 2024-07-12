@@ -17,6 +17,10 @@ test: ## Run unittests
 run:  ## Run example project
 	@go run _example/*
 
+.PHONY: gen
+gen:  ## Generate mocks
+	@mockery
+
 .PHONY: update-go-deps
 update-go-deps:  ## Updating Go dependencies
 	@echo ">> updating Go dependencies"
