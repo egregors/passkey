@@ -100,7 +100,7 @@ func TestAuth(t *testing.T) {
 					URL: &url.URL{Path: "/"},
 				},
 			},
-			wantStatus: http.StatusUnauthorized,
+			wantStatus: http.StatusSeeOther,
 			wantExtraHeader: func(wH, rH http.Header) bool {
 				return wH.Get("Location") == "/login"
 			},
