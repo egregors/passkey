@@ -65,20 +65,22 @@ func (s *Storage) GenSessionID() (string, error) {
 	return base64.URLEncoding.EncodeToString(b), nil
 }
 
-func (s *Storage) GetSession(token string) (webauthn.SessionData, bool) {
+func (s *Storage) GetSession(token string) (*webauthn.SessionData, bool) {
 	s.sMu.RLock()
 	defer s.sMu.RUnlock()
 
-	val, ok := s.sessions[token]
-
-	return val, ok
+	if val, ok := s.sessions[token]; !ok {
+		return nil, false
+	} else {
+		return &val, true
+	}
 }
 
-func (s *Storage) SaveSession(token string, data webauthn.SessionData) {
+func (s *Storage) SaveSession(token string, data *webauthn.SessionData) {
 	s.sMu.Lock()
 	defer s.sMu.Unlock()
 
-	s.sessions[token] = data
+	s.sessions[token] = *data
 }
 
 func (s *Storage) DeleteSession(token string) {

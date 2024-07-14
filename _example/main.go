@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/egregors/passkey"
@@ -45,7 +46,13 @@ func main() {
 		// render html from web/private.html
 		http.ServeFile(w, r, "./_example/web/private.html")
 	})
-	withAuth := passkey.Auth(storage)
+
+	withAuth := passkey.Auth(
+		storage,
+		nil,
+		passkey.RedirectUnauthorized(url.URL{Path: "/"}),
+	)
+
 	mux.Handle("/private", withAuth(privateMux))
 
 	fmt.Printf("Listening on %s\n", origin)

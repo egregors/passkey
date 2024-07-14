@@ -21,8 +21,8 @@ type UserStore interface {
 
 type SessionStore interface {
 	GenSessionID() (string, error)
-	GetSession(token string) (webauthn.SessionData, bool)
-	SaveSession(token string, data webauthn.SessionData)
+	GetSession(token string) (*webauthn.SessionData, bool)
+	SaveSession(token string, data *webauthn.SessionData)
 	DeleteSession(token string)
 }
 

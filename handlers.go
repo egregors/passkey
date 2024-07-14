@@ -39,7 +39,7 @@ func (p *Passkey) beginRegistration(w http.ResponseWriter, r *http.Request) {
 		JSONResponse(w, fmt.Sprintf("can't generate session id: %s", err.Error()), http.StatusInternalServerError)
 	}
 
-	p.sessionStore.SaveSession(t, *session)
+	p.sessionStore.SaveSession(t, session)
 
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
@@ -78,7 +78,7 @@ func (p *Passkey) finishRegistration(w http.ResponseWriter, r *http.Request) {
 	// TODO: username != user id? need to check
 	user := p.userStore.GetOrCreateUser(string(session.UserID)) // Get the user
 
-	credential, err := p.webAuthn.FinishRegistration(user, session, r)
+	credential, err := p.webAuthn.FinishRegistration(user, *session, r)
 	if err != nil {
 		msg := fmt.Sprintf("can't finish registration: %s", err.Error())
 		p.l.Errorf(msg)
@@ -130,7 +130,7 @@ func (p *Passkey) beginLogin(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
-	p.sessionStore.SaveSession(t, *session)
+	p.sessionStore.SaveSession(t, session)
 
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
@@ -163,7 +163,7 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 	// TODO: username != user id? need to check
 	user := p.userStore.GetOrCreateUser(string(session.UserID)) // Get the user
 
-	credential, err := p.webAuthn.FinishLogin(user, session, r)
+	credential, err := p.webAuthn.FinishLogin(user, *session, r)
 	if err != nil {
 		p.l.Errorf("can't finish login: %s", err.Error())
 		JSONResponse(w, fmt.Sprintf("can't finish login: %s", err.Error()), http.StatusBadRequest)
@@ -193,7 +193,7 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p.sessionStore.SaveSession(t, webauthn.SessionData{
+	p.sessionStore.SaveSession(t, &webauthn.SessionData{
 		Expires: time.Now().Add(time.Hour),
 	})
 	http.SetCookie(w, &http.Cookie{

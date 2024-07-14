@@ -1,4 +1,3 @@
-
 <div align="center">
     <h1>🔑 passkey</h1>
 
@@ -54,20 +53,20 @@ To add a passkey service to your application, you need to do two things:
 
 ```go
 type User interface {
-  webauthn.User
-  PutCredential(webauthn.Credential)
+webauthn.User
+PutCredential(webauthn.Credential)
 }
 
 type UserStore interface {
-  GetOrCreateUser(userName string) User
-  SaveUser(User)
+GetOrCreateUser(userName string) User
+SaveUser(User)
 }
 
 type SessionStore interface {
-  GenSessionID() (string, error)
-  GetSession(token string) (webauthn.SessionData, bool)
-  SaveSession(token string, data webauthn.SessionData)
-  DeleteSession(token string)
+GenSessionID() (string, error)
+GetSession(token string) (webauthn.SessionData, bool)
+SaveSession(token string, data webauthn.SessionData)
+DeleteSession(token string)
 }
 
 ```
@@ -154,23 +153,43 @@ This will start the example application on http://localhost:8080.
 
 ### Middleware
 
-The `Auth` function provides middleware for adding passkey HTTP authentication to routes.
+The library provides a middleware function that can be used to protect routes that require authentication.
 
 ```go
-func Auth(sessionStore SessionStore) func (next http.Handler) http.Handler
+func Auth(sessionStore SessionStore, onSuccess, onFail http.HandlerFunc) func (next http.Handler) http.Handler {
 ```
+
+It takes two callback functions that are called when the user is authenticated or not.
+
+`passkey` contains a helper function:
+
+| Helper                       | Description                                                             |
+|------------------------------|-------------------------------------------------------------------------|
+| Unauthorized                 | Returns a 401 Unauthorized response when the user is not authenticated. |
+| RedirectUnauthorized(target) | Redirects the user to a given URL when they are not authenticated.      |
 
 You can use it to protect routes that require authentication:
 
 ```go
-mux := http.NewServeMux()
-mux.HandleFunc("/private", func (w http.ResponseWriter, r *http.Request) {
-	// render html from web/private.html
-	http.ServeFile(w, r, "./_example/web/private.html")
-})
+package main
 
-withAuth := passkey.Auth(storage)
-mux.Handle("/private", withAuth(privateMux))
+import (
+  "net/url"
+
+  "github.com/egregors/passkey"
+)
+
+func main() {
+  // ...
+  withAuth := passkey.Auth(
+    storage,
+    nil,
+    passkey.RedirectUnauthorized(url.URL{Path: "/"}),
+  )
+
+  mux.Handle("/private", withAuth(privateMux))
+}
+
 ```
 
 ## Development
