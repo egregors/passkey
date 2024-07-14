@@ -165,21 +165,40 @@ You can use it to protect routes that require authentication:
 ```go
 mux := http.NewServeMux()
 mux.HandleFunc("/private", func (w http.ResponseWriter, r *http.Request) {
-// render html from web/private.html
-http.ServeFile(w, r, "./_example/web/private.html")
+	// render html from web/private.html
+	http.ServeFile(w, r, "./_example/web/private.html")
 })
+
 withAuth := passkey.Auth(storage)
 mux.Handle("/private", withAuth(privateMux))
 ```
 
 ## Development
 
-### Generate Mocks
+### Common tasks
+
+To common dev task just use `make`:
+
+```bash
+➜  passkey git:(main) make help
+Usage: make [task]
+
+task                 help
+------               ----
+
+lint                 Lint the files
+test                 Run unittests
+run                  Run example project
+gen                  Generate mocks
+update-go-deps       Updating Go dependencies
+
+help                 Show help message
+```
+
+### Mocks
 
 Use [mockery](https://github.com/vektra/mockery) to generate mocks for interfaces.
 
-```bash 
-mockery
 ```
 
 ## License
