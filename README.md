@@ -32,6 +32,19 @@
 > [!WARNING]  
 > Stable version is not released yet. The API and the lib are under development.
 
+> [!NOTE]
+> In general, this library is built on top of two open-source solutions:
+> * Golang WebAuthn Library – https://github.com/go-webauthn/webauthn
+> * JS/TS SimpleWebAuthn client – https://github.com/MasterKale/SimpleWebAuthn
+
+Used in project:
+![Static Badge](https://img.shields.io/badge/Go_WebAuthn-v0.10.2-green)
+![Static Badge](https://img.shields.io/badge/TS%5CJS%20SimpleWebAuthn-v10.0.0-green)
+
+Actual versions: 
+![GitHub Release](https://img.shields.io/github/v/release/go-webauthn/webauthn?label=Go%20WebAuthn)
+![GitHub Release](https://img.shields.io/github/v/release/MasterKale/SimpleWebAuthn?label=TS%5CJS%20SimpleWebAuthn)
+
 ## Installation
 
 To get started, you need to have Go installed on your machine. If you don't have it installed,
