@@ -2,7 +2,7 @@
 <div align="center">
     <h1>🔑 passkey</h1>
 
-`passkey` is a Go library for implementing WebAuthn services, providing
+`passkey` is a Go library for implementing WebAuthn services
 
 [![Build Status](https://github.com/egregors/passkey/workflows/build/badge.svg)](https://github.com/egregors/passkey/actions)
 [![Go Report Card](https://goreportcard.com/badge/github.com/egregors/passkey)](https://goreportcard.com/report/github.com/egregors/passkey)
