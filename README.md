@@ -53,20 +53,20 @@ To add a passkey service to your application, you need to do two things:
 
 ```go
 type User interface {
-webauthn.User
-PutCredential(webauthn.Credential)
+  webauthn.User
+  PutCredential(webauthn.Credential)
 }
 
 type UserStore interface {
-GetOrCreateUser(userName string) User
-SaveUser(User)
+  GetOrCreateUser(userName string) User
+  SaveUser(User)
 }
 
 type SessionStore interface {
-GenSessionID() (string, error)
-GetSession(token string) (webauthn.SessionData, bool)
-SaveSession(token string, data webauthn.SessionData)
-DeleteSession(token string)
+  GenSessionID() (string, error)
+  GetSession(token string) (*webauthn.SessionData, bool)
+  SaveSession(token string, data *webauthn.SessionData)
+  DeleteSession(token string)
 }
 
 ```
