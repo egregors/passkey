@@ -10,3 +10,4 @@ packages:
       Logger:
       UserStore:
       SessionStore:
+      User:

@@ -17,8 +17,9 @@ func (p *Passkey) beginRegistration(w http.ResponseWriter, r *http.Request) {
 	username, err := getUsername(r)
 	if err != nil {
 		p.l.Errorf("can't get username: %s", err.Error())
+		JSONResponse(w, fmt.Sprintf("can't get username: %s", err.Error()), http.StatusBadRequest)
 
-		JSONResponse(w, fmt.Sprintf("can't get user name: %s", err.Error()), http.StatusBadRequest)
+		return
 	}
 
 	user := p.userStore.GetOrCreateUser(username)
@@ -37,6 +38,8 @@ func (p *Passkey) beginRegistration(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		p.l.Errorf("can't generate session id: %s", err.Error())
 		JSONResponse(w, fmt.Sprintf("can't generate session id: %s", err.Error()), http.StatusInternalServerError)
+
+		return
 	}
 
 	p.sessionStore.SaveSession(t, session)
@@ -220,6 +223,10 @@ func getUsername(r *http.Request) (string, error) {
 		return "", err
 	}
 
+	if u.Username == "" {
+		return "", ErrNoUsername
+	}
+
 	return u.Username, nil
 }
 
@@ -233,8 +240,9 @@ func JSONResponse(w http.ResponseWriter, data interface{}, status int) {
 // deleteCookie deletes a cookie
 func deleteCookie(w http.ResponseWriter, name string) { //nolint:unparam // it's ok here
 	http.SetCookie(w, &http.Cookie{
-		Name:   name,
-		Value:  "",
-		MaxAge: -1,
+		Name:    name,
+		Value:   "",
+		Expires: time.Unix(0, 0),
+		MaxAge:  -1,
 	})
 }
