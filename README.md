@@ -41,7 +41,7 @@ Used in project:
 ![Static Badge](https://img.shields.io/badge/Go_WebAuthn-v0.10.2-green)
 ![Static Badge](https://img.shields.io/badge/TS%5CJS%20SimpleWebAuthn-v10.0.0-green)
 
-Actual versions: 
+Actual versions:
 ![GitHub Release](https://img.shields.io/github/v/release/go-webauthn/webauthn?label=Go%20WebAuthn)
 ![GitHub Release](https://img.shields.io/github/v/release/MasterKale/SimpleWebAuthn?label=TS%5CJS%20SimpleWebAuthn)
 
@@ -65,13 +65,17 @@ To add a passkey service to your application, you need to do two things:
 #### Implement the `UserStore` and `SessionStore` interfaces
 
 ```go
+package passkey
+
+import "github.com/go-webauthn/webauthn/webauthn"
+
 type User interface {
   webauthn.User
   PutCredential(webauthn.Credential)
 }
 
 type UserStore interface {
-  GetOrCreateUser(userName string) User
+  GetOrCreateUser(UserID string) User
   SaveUser(User)
 }
 
@@ -169,10 +173,12 @@ This will start the example application on http://localhost:8080.
 The library provides a middleware function that can be used to protect routes that require authentication.
 
 ```go
-func Auth(sessionStore SessionStore, onSuccess, onFail http.HandlerFunc) func (next http.Handler) http.Handler {
+Auth(sessionStore SessionStore, userIDKey string, onSuccess, onFail http.HandlerFunc) func (next http.Handler) http.Handler
 ```
 
-It takes two callback functions that are called when the user is authenticated or not.
+It takes key for context and two callback functions that are called when the user is authenticated or not.
+You can use the context key to retrieve the authenticated userID from the request context
+with `passkey.UserFromContext`.
 
 `passkey` contains a helper function:
 
@@ -180,6 +186,7 @@ It takes two callback functions that are called when the user is authenticated o
 |------------------------------|-------------------------------------------------------------------------|
 | Unauthorized                 | Returns a 401 Unauthorized response when the user is not authenticated. |
 | RedirectUnauthorized(target) | Redirects the user to a given URL when they are not authenticated.      |
+| UserFromContext              | Get userID from context                                                 |
 
 You can use it to protect routes that require authentication:
 
@@ -187,22 +194,22 @@ You can use it to protect routes that require authentication:
 package main
 
 import (
-  "net/url"
+	"net/url"
 
-  "github.com/egregors/passkey"
+	"github.com/egregors/passkey"
 )
 
 func main() {
-  // ...
-  withAuth := passkey.Auth(
-    storage,
-    nil,
-    passkey.RedirectUnauthorized(url.URL{Path: "/"}),
-  )
+	// ...
+	withAuth := passkey.Auth(
+		storage,
+		"pkUser",
+		nil,
+		passkey.RedirectUnauthorized(url.URL{Path: "/"}),
+	)
 
-  mux.Handle("/private", withAuth(privateMux))
+	mux.Handle("/private", withAuth(privateMux))
 }
-
 ```
 
 ## Development

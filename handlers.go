@@ -196,8 +196,10 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// FIXME: we reuse the webauthn.SessionData struct, but it's not a good idea probably
 	p.sessionStore.SaveSession(t, &webauthn.SessionData{
-		Expires: time.Now().Add(time.Hour),
+		UserID:  session.UserID,
+		Expires: time.Now().Add(p.cfg.SessionMaxAge),
 	})
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,

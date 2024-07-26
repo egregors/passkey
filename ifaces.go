@@ -15,7 +15,7 @@ type User interface {
 }
 
 type UserStore interface {
-	GetOrCreateUser(userName string) User
+	GetOrCreateUser(userID string) User
 	SaveUser(User)
 }
 

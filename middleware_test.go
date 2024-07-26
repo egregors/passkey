@@ -1,6 +1,8 @@
 package passkey
 
 import (
+	"context"
+	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -169,7 +171,12 @@ func TestAuth(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			sessionStore := tt.args.sessionStore()
-			handler := Auth(sessionStore, tt.args.onSuccess, tt.args.onFail)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			handler := Auth(
+				sessionStore,
+				"pkUserKey",
+				tt.args.onSuccess,
+				tt.args.onFail,
+			)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
 			}))
 			resp := httptest.NewRecorder()
@@ -182,6 +189,52 @@ func TestAuth(t *testing.T) {
 			if tt.wantExtraHeader != nil && !tt.wantExtraHeader(resp.Header(), tt.args.req.Header) {
 				t.Errorf("Wrong Header: %v", tt.args.req.Header)
 			}
+		})
+	}
+}
+
+func TestUserFromContext(t *testing.T) {
+	tests := []struct {
+		name      string
+		ctx       context.Context
+		pkUserKey string
+		wantVal   string
+		wantOk    bool
+	}{
+		{
+			name:      "empty context",
+			ctx:       context.Background(),
+			pkUserKey: "pkUserKey",
+			wantVal:   "",
+			wantOk:    false,
+		},
+		{
+			name:      "missing key",
+			ctx:       context.WithValue(context.Background(), "otherKey", "value"),
+			pkUserKey: "pkUserKey",
+			wantVal:   "",
+			wantOk:    false,
+		},
+		{
+			name:      "empty value",
+			ctx:       context.WithValue(context.Background(), "pkUserKey", ""),
+			pkUserKey: "pkUserKey",
+			wantVal:   "",
+			wantOk:    false,
+		},
+		{
+			name:      "valid value",
+			ctx:       context.WithValue(context.Background(), "pkUserKey", "value"),
+			pkUserKey: "pkUserKey",
+			wantVal:   "value",
+			wantOk:    true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotVal, gotOk := UserFromContext(tt.ctx, tt.pkUserKey)
+			assert.Equalf(t, tt.wantVal, gotVal, "UserFromContext(%v, %v)", tt.ctx, tt.pkUserKey)
+			assert.Equalf(t, tt.wantOk, gotOk, "UserFromContext(%v, %v)", tt.ctx, tt.pkUserKey)
 		})
 	}
 }
