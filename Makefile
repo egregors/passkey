@@ -7,7 +7,7 @@ GO_FILES := $(shell find . -name '*.go' | grep -v /vendor/ | grep -v _test.go)
 
 .PHONY: lint
 lint: ## Lint the files
-	golangci-lint run ./... --timeout 1m -c .golangci-lint.yml
+	golangci-lint run ./... --timeout 1m -c .golangci.yml
 
 .PHONY: test
 test: ## Run unittests

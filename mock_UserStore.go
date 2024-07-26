@@ -17,9 +17,9 @@ func (_m *MockUserStore) EXPECT() *MockUserStore_Expecter {
 	return &MockUserStore_Expecter{mock: &_m.Mock}
 }
 
-// GetOrCreateUser provides a mock function with given fields: userName
-func (_m *MockUserStore) GetOrCreateUser(userName string) User {
-	ret := _m.Called(userName)
+// GetOrCreateUser provides a mock function with given fields: userID
+func (_m *MockUserStore) GetOrCreateUser(userID string) User {
+	ret := _m.Called(userID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetOrCreateUser")
@@ -27,7 +27,7 @@ func (_m *MockUserStore) GetOrCreateUser(userName string) User {
 
 	var r0 User
 	if rf, ok := ret.Get(0).(func(string) User); ok {
-		r0 = rf(userName)
+		r0 = rf(userID)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(User)
@@ -43,12 +43,12 @@ type MockUserStore_GetOrCreateUser_Call struct {
 }
 
 // GetOrCreateUser is a helper method to define mock.On call
-//   - userName string
-func (_e *MockUserStore_Expecter) GetOrCreateUser(userName interface{}) *MockUserStore_GetOrCreateUser_Call {
-	return &MockUserStore_GetOrCreateUser_Call{Call: _e.mock.On("GetOrCreateUser", userName)}
+//   - userID string
+func (_e *MockUserStore_Expecter) GetOrCreateUser(userID interface{}) *MockUserStore_GetOrCreateUser_Call {
+	return &MockUserStore_GetOrCreateUser_Call{Call: _e.mock.On("GetOrCreateUser", userID)}
 }
 
-func (_c *MockUserStore_GetOrCreateUser_Call) Run(run func(userName string)) *MockUserStore_GetOrCreateUser_Call {
+func (_c *MockUserStore_GetOrCreateUser_Call) Run(run func(userID string)) *MockUserStore_GetOrCreateUser_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(string))
 	})

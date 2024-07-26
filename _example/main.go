@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"html/template"
 	"net/http"
 	"net/url"
 	"time"
@@ -43,12 +44,37 @@ func main() {
 
 	privateMux := http.NewServeMux()
 	privateMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// render html from web/private.html
-		http.ServeFile(w, r, "./_example/web/private.html")
+		// get the userID from the request context
+		userID, ok := passkey.UserFromContext(r.Context(), "pkUser")
+		if !ok {
+			http.Error(w, "No user found", http.StatusUnauthorized)
+
+			return
+		}
+
+		pageData := struct {
+			UserID string
+		}{
+			UserID: userID,
+		}
+
+		tmpl, err := template.ParseFiles("./_example/web/private.html")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+
+			return
+		}
+
+		if err := tmpl.Execute(w, pageData); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+
+			return
+		}
 	})
 
 	withAuth := passkey.Auth(
 		storage,
+		"pkUser",
 		nil,
 		passkey.RedirectUnauthorized(url.URL{Path: "/"}),
 	)
