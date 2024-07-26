@@ -2,4 +2,6 @@ package passkey
 
 import "fmt"
 
-var ErrNoUsername = fmt.Errorf("no username provided")
+var (
+	ErrNoUsername = fmt.Errorf("no username provided")
+)

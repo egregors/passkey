@@ -11,6 +11,8 @@ import (
 	"github.com/go-webauthn/webauthn/webauthn"
 )
 
+const userKey = "pkUser"
+
 func main() {
 	proto := "http"
 	host := "localhost"
@@ -41,11 +43,15 @@ func main() {
 	pkey.MountStaticRoutes(mux, "/static/")
 
 	mux.Handle("/", http.FileServer(http.Dir("./_example/web")))
+	mux.HandleFunc("/logout", func(w http.ResponseWriter, r *http.Request) {
+		pkey.Logout(w, r)
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+	})
 
 	privateMux := http.NewServeMux()
 	privateMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// get the userID from the request context
-		userID, ok := passkey.UserFromContext(r.Context(), "pkUser")
+		userID, ok := passkey.UserFromContext(r.Context(), userKey)
 		if !ok {
 			http.Error(w, "No user found", http.StatusUnauthorized)
 
@@ -74,7 +80,7 @@ func main() {
 
 	withAuth := passkey.Auth(
 		storage,
-		"pkUser",
+		userKey,
 		nil,
 		passkey.RedirectUnauthorized(url.URL{Path: "/"}),
 	)
