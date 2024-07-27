@@ -15,17 +15,17 @@ import (
 //
 // Otherwise:
 //   - `onFail` handler is called and the next handler is not executed.
-func Auth(sessionStore SessionStore, userIDKey string, onSuccess, onFail http.HandlerFunc) func(next http.Handler) http.Handler {
+func (p *Passkey) Auth(userIDKey string, onSuccess, onFail http.HandlerFunc) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			sid, err := r.Cookie(sessionCookieName)
+			sid, err := r.Cookie(p.cookieSettings.Name)
 			if err != nil {
 				exec(onFail, w, r)
 
 				return
 			}
 
-			session, ok := sessionStore.GetSession(sid.Value)
+			session, ok := p.sessionStore.GetSession(sid.Value)
 			if !ok {
 				exec(onFail, w, r)
 

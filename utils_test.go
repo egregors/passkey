@@ -1,11 +1,12 @@
 package passkey
 
 import (
-	"github.com/go-webauthn/webauthn/webauthn"
-	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/go-webauthn/webauthn/webauthn"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestPasskey_Logout(t *testing.T) {
@@ -36,7 +37,7 @@ func TestPasskey_Logout(t *testing.T) {
 			r: func() *http.Request {
 				r := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 				r.AddCookie(&http.Cookie{
-					Name:  sessionCookieName,
+					Name:  defaultSessionCookieName,
 					Value: "hello-darkness-my-old-friend",
 				})
 

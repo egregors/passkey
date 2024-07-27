@@ -70,20 +70,20 @@ package passkey
 import "github.com/go-webauthn/webauthn/webauthn"
 
 type User interface {
-  webauthn.User
-  PutCredential(webauthn.Credential)
+	webauthn.User
+	PutCredential(webauthn.Credential)
 }
 
 type UserStore interface {
-  GetOrCreateUser(UserID string) User
-  SaveUser(User)
+	GetOrCreateUser(UserID string) User
+	SaveUser(User)
 }
 
 type SessionStore interface {
-  GenSessionID() (string, error)
-  GetSession(token string) (*webauthn.SessionData, bool)
-  SaveSession(token string, data *webauthn.SessionData)
-  DeleteSession(token string)
+	GenSessionID() (string, error)
+	GetSession(token string) (*webauthn.SessionData, bool)
+	SaveSession(token string, data *webauthn.SessionData)
+	DeleteSession(token string)
 }
 
 ```
@@ -96,6 +96,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/egregors/passkey"
@@ -119,44 +120,65 @@ func main() {
 			},
 			UserStore:     storage,
 			SessionStore:  storage,
-			SessionMaxAge: 60 * time.Minute,
+			SessionMaxAge: 24 * time.Hour,
 		},
 		passkey.WithLogger(NewLogger()),
+		passkey.WithCookieMaxAge(60*time.Minute),
+		passkey.WithInsecureCookie(), // In order to support Safari on localhost. Do not use in production.
 	)
 	if err != nil {
 		panic(err)
 	}
 
 	mux := http.NewServeMux()
+
+	// mount the passkey routes
 	pkey.MountRoutes(mux, "/api/")
 	pkey.MountStaticRoutes(mux, "/static/")
 
+	// public routes
 	mux.Handle("/", http.FileServer(http.Dir("./_example/web")))
-    mux.HandleFunc("/logout", func(w http.ResponseWriter, r *http.Request) {
-      pkey.Logout(w, r)
-      http.Redirect(w, r, "/", http.StatusSeeOther)
-    })
-
-	privateMux := http.NewServeMux()
-	privateMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// render html from web/private.html
-		http.ServeFile(w, r, "./_example/web/private.html")
+	mux.HandleFunc("/logout", func(w http.ResponseWriter, r *http.Request) {
+		pkey.Logout(w, r)
+		http.Redirect(w, r, "/", http.StatusSeeOther)
 	})
-	withAuth := passkey.Auth(storage)
+
+	// private routes
+	privateMux := http.NewServeMux()
+	privateMux.HandleFunc("/", privateHandler())
+
+	// wrap the privateMux with the Auth middleware
+	withAuth := pkey.Auth(
+		userKey,
+		nil,
+		passkey.RedirectUnauthorized(url.URL{Path: "/"}),
+	)
 	mux.Handle("/private", withAuth(privateMux))
 
+	// start the server
+	fmt.Printf("Listening on %s\n", origin)
 	if err := http.ListenAndServe(port, mux); err != nil {
 		panic(err)
 	}
 }
+
 ```
 
 You can optionally provide a logger to the `New` function using the `WithLogger` option.
 
+Full list of options:
+
+| Name                  | Default                               | Description                            |
+|-----------------------|---------------------------------------|----------------------------------------|
+| WithLogger            | NullLogger                            | Provide custom logger                  |
+| WithInsecureCookie    | Disabled (cookie is secure by default | Sets Cookie.Secure to false            |
+| WithSessionCookieName | `sid`                                 | Sets the name of the session cookie    |
+| WithCookieMaxAge      | 60 minutes                            | Sets the max age of the session cookie |
+
 ### Example Application
 
-The library comes with an example application that demonstrates how to use the library. To run the example application,
-navigate to the `_example` directory and run the following command:
+The library comes with an example application that demonstrates how to use it. To run the example application
+just run the following command:
 
 ```bash
 make run
@@ -166,18 +188,19 @@ This will start the example application on http://localhost:8080.
 
 ## API
 
-| Method                                               | Description                                              |
-|------------------------------------------------------|----------------------------------------------------------|
-| `New(cfg Config, opts ...Option) (*Passkey, error)`  | Creates a new Passkey instance.                          |
-| `MountRoutes(mux *http.ServeMux, path string)`       | Mounts the Passkey routes onto a given HTTP multiplexer. |
-| `MountStaticRoutes(mux *http.ServeMux, path string)` | Mounts the static routes onto a given HTTP multiplexer.  |
+| Method                                                                                            | Description                                               |
+|---------------------------------------------------------------------------------------------------|-----------------------------------------------------------|
+| `New(cfg Config, opts ...Option) (*Passkey, error)`                                               | Creates a new Passkey instance.                           |
+| `MountRoutes(mux *http.ServeMux, path string)`                                                    | Mounts the Passkey routes onto a given HTTP multiplexer.  |
+| `MountStaticRoutes(mux *http.ServeMux, path string)`                                              | Mounts the static routes onto a given HTTP multiplexer.   |
+| `Auth(userIDKey string, onSuccess, onFail http.HandlerFunc) func(next http.Handler) http.Handler` | Middleware to protect routes that require authentication. |
 
 ### Middleware
 
 The library provides a middleware function that can be used to protect routes that require authentication.
 
 ```go
-Auth(sessionStore SessionStore, userIDKey string, onSuccess, onFail http.HandlerFunc) func (next http.Handler) http.Handler
+Auth(userIDKey string, onSuccess, onFail http.HandlerFunc) func (next http.Handler) http.Handler
 ```
 
 It takes key for context and two callback functions that are called when the user is authenticated or not.
@@ -204,9 +227,10 @@ import (
 )
 
 func main() {
-	// ...
-	withAuth := passkey.Auth(
-		storage,
+	pkey, err := passkey.New(...)
+	check(err)
+
+	withAuth := pkey.Auth(
 		"pkUser",
 		nil,
 		passkey.RedirectUnauthorized(url.URL{Path: "/"}),
@@ -214,6 +238,7 @@ func main() {
 
 	mux.Handle("/private", withAuth(privateMux))
 }
+
 ```
 
 ## Development
@@ -242,7 +267,10 @@ help                 Show help message
 
 Use [mockery](https://github.com/vektra/mockery) to generate mocks for interfaces.
 
-```
+## Contributing
+
+Bug reports, bug fixes and new features are always welcome. Please open issues and submit pull requests for any new
+code.
 
 ## License
 

@@ -4,7 +4,7 @@ import "net/http"
 
 // Logout deletes session from session store and deletes session cookie
 func (p *Passkey) Logout(w http.ResponseWriter, r *http.Request) {
-	sid, err := r.Cookie(sessionCookieName)
+	sid, err := r.Cookie(p.cookieSettings.Name)
 	if err != nil {
 		p.l.Errorf("can't get session cookie: %s", err.Error())
 
@@ -12,5 +12,5 @@ func (p *Passkey) Logout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	p.sessionStore.DeleteSession(sid.Value)
-	deleteCookie(w, sessionCookieName)
+	p.deleteSessionCookie(w)
 }

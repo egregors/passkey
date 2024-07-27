@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
@@ -230,7 +231,7 @@ func TestPasskey_beginRegistration(t *testing.T) {
 					},
 					UserStore:     tt.userStore(),
 					SessionStore:  tt.sessionStore(),
-					SessionMaxAge: 69,
+					SessionMaxAge: 69 * time.Second,
 				},
 			)
 			assert.NoError(t, err)
