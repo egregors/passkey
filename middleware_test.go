@@ -2,12 +2,13 @@ package passkey
 
 import (
 	"context"
-	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 
 	"github.com/go-webauthn/webauthn/webauthn"
 )
@@ -169,10 +170,21 @@ func TestAuth(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		sessionStore := tt.args.sessionStore()
+		p, err := New(
+			Config{
+				WebauthnConfig: &webauthn.Config{
+					RPDisplayName: "Passkey Test",
+					RPID:          "localhost",
+					RPOrigins:     []string{"localhost"},
+				},
+				SessionStore:  sessionStore,
+				SessionMaxAge: 69 * time.Second,
+			},
+		)
+		assert.NoError(t, err)
 		t.Run(tt.name, func(t *testing.T) {
-			sessionStore := tt.args.sessionStore()
-			handler := Auth(
-				sessionStore,
+			handler := p.Auth(
 				"pkUserKey",
 				tt.args.onSuccess,
 				tt.args.onFail,

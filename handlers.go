@@ -43,16 +43,7 @@ func (p *Passkey) beginRegistration(w http.ResponseWriter, r *http.Request) {
 	}
 
 	p.sessionStore.SaveSession(t, session)
-
-	http.SetCookie(w, &http.Cookie{
-		Name:     sessionCookieName,
-		Value:    t,
-		Path:     "/", // TODO: it probably shouldn't be root
-		MaxAge:   registerMaxAge,
-		Secure:   true,
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode, // TODO: SameSiteStrictMode maybe?
-	})
+	p.setSessionCookie(w, t)
 
 	// return the options generated with the session key
 	// options.publicKey contain our registration options
@@ -61,7 +52,7 @@ func (p *Passkey) beginRegistration(w http.ResponseWriter, r *http.Request) {
 
 func (p *Passkey) finishRegistration(w http.ResponseWriter, r *http.Request) {
 	// Get the session key from cookie
-	sid, err := r.Cookie(sessionCookieName)
+	sid, err := r.Cookie(p.cookieSettings.Name)
 	if err != nil {
 		p.l.Errorf("can't get session id: %s", err.Error())
 		JSONResponse(w, fmt.Sprintf("can't get session id: %s", err.Error()), http.StatusBadRequest)
@@ -86,7 +77,7 @@ func (p *Passkey) finishRegistration(w http.ResponseWriter, r *http.Request) {
 		msg := fmt.Sprintf("can't finish registration: %s", err.Error())
 		p.l.Errorf(msg)
 
-		deleteCookie(w, sessionCookieName)
+		p.deleteSessionCookie(w)
 		JSONResponse(w, msg, http.StatusBadRequest)
 
 		return
@@ -97,7 +88,7 @@ func (p *Passkey) finishRegistration(w http.ResponseWriter, r *http.Request) {
 	p.userStore.SaveUser(user)
 
 	p.sessionStore.DeleteSession(sid.Value)
-	deleteCookie(w, sessionCookieName)
+	p.deleteSessionCookie(w)
 
 	p.l.Infof("finish registration")
 	JSONResponse(w, "Registration Success", http.StatusOK)
@@ -120,7 +111,7 @@ func (p *Passkey) beginLogin(w http.ResponseWriter, r *http.Request) {
 		msg := fmt.Sprintf("can't begin login: %s", err.Error())
 		p.l.Errorf(msg)
 		JSONResponse(w, msg, http.StatusBadRequest)
-		deleteCookie(w, sessionCookieName)
+		p.deleteSessionCookie(w)
 
 		return
 	}
@@ -134,16 +125,7 @@ func (p *Passkey) beginLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p.sessionStore.SaveSession(t, session)
-
-	http.SetCookie(w, &http.Cookie{
-		Name:     sessionCookieName,
-		Value:    t,
-		Path:     "/", // TODO: it probably shouldn't be root
-		MaxAge:   loginMaxAge,
-		Secure:   true,
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode, // TODO: SameSiteStrictMode maybe?
-	})
+	p.setSessionCookie(w, t)
 
 	// return the options generated with the session key
 	// options.publicKey contain our registration options
@@ -152,7 +134,7 @@ func (p *Passkey) beginLogin(w http.ResponseWriter, r *http.Request) {
 
 func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 	// Get the session key from cookie
-	sid, err := r.Cookie(sessionCookieName)
+	sid, err := r.Cookie(p.cookieSettings.Name)
 	if err != nil {
 		p.l.Errorf("can't get session id: %s", err.Error())
 		JSONResponse(w, fmt.Sprintf("can't get session id: %s", err.Error()), http.StatusBadRequest)
@@ -185,7 +167,7 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 
 	// Delete the login session data
 	p.sessionStore.DeleteSession(sid.Value)
-	deleteCookie(w, sessionCookieName)
+	p.deleteSessionCookie(w)
 
 	// Add the new session cookie
 	t, err := p.sessionStore.GenSessionID()
@@ -201,15 +183,7 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 		UserID:  session.UserID,
 		Expires: time.Now().Add(p.cfg.SessionMaxAge),
 	})
-	http.SetCookie(w, &http.Cookie{
-		Name:     sessionCookieName,
-		Value:    t,
-		Path:     "/",
-		MaxAge:   int(p.sessionMaxAge.Seconds()),
-		Secure:   true,
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode, // TODO: SameSiteStrictMode maybe?
-	})
+	p.setSessionCookie(w, t)
 
 	p.l.Infof("finish login")
 	JSONResponse(w, "Login Success", http.StatusOK)
@@ -239,10 +213,22 @@ func JSONResponse(w http.ResponseWriter, data interface{}, status int) {
 	_ = json.NewEncoder(w).Encode(data)
 }
 
-// deleteCookie deletes a cookie
-func deleteCookie(w http.ResponseWriter, name string) { //nolint:unparam // it's ok here
+func (p *Passkey) setSessionCookie(w http.ResponseWriter, value string) {
 	http.SetCookie(w, &http.Cookie{
-		Name:    name,
+		Name:     p.cookieSettings.Name,
+		Value:    value,
+		Path:     p.cookieSettings.Path,
+		MaxAge:   int(p.cookieSettings.MaxAge.Seconds()),
+		Secure:   p.cookieSettings.Secure,
+		HttpOnly: p.cookieSettings.HttpOnly,
+		SameSite: p.cookieSettings.SameSite,
+	})
+}
+
+// deleteSessionCookie deletes a cookie
+func (p *Passkey) deleteSessionCookie(w http.ResponseWriter) { //nolint:unparam // it's ok here
+	http.SetCookie(w, &http.Cookie{
+		Name:    p.cookieSettings.Name,
 		Value:   "",
 		Expires: time.Unix(0, 0),
 		MaxAge:  -1,

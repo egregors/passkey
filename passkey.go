@@ -15,10 +15,8 @@ const (
 	pathLoginBegin     = "/passkey/loginBegin"
 	pathLoginFinish    = "/passkey/loginFinish"
 
-	registerMaxAge = 3600
-	loginMaxAge    = 3600
-
-	sessionCookieName = "sid"
+	defaultSessionCookieName = "sid"
+	defaultCookieMaxAge      = 60 * time.Minute
 )
 
 type Config struct {
@@ -26,6 +24,15 @@ type Config struct {
 	UserStore
 	SessionStore
 	SessionMaxAge time.Duration
+}
+
+type CookieSettings struct {
+	Name     string
+	Path     string
+	MaxAge   time.Duration
+	Secure   bool
+	HttpOnly bool //nolint:stylecheck // naming from http.Cookie
+	SameSite http.SameSite
 }
 
 type Passkey struct {
@@ -36,12 +43,11 @@ type Passkey struct {
 	userStore    UserStore
 	sessionStore SessionStore
 
-	sessionMaxAge time.Duration
-
 	mux       *http.ServeMux
 	staticMux *http.ServeMux
 
-	l Logger
+	l              Logger
+	cookieSettings CookieSettings
 }
 
 // New creates new Passkey instance
@@ -49,12 +55,18 @@ func New(cfg Config, opts ...Option) (*Passkey, error) {
 	p := &Passkey{
 		cfg: cfg,
 
-		userStore:     cfg.UserStore,
-		sessionStore:  cfg.SessionStore,
-		sessionMaxAge: cfg.SessionMaxAge,
+		userStore:    cfg.UserStore,
+		sessionStore: cfg.SessionStore,
 
 		mux:       http.NewServeMux(),
 		staticMux: http.NewServeMux(),
+
+		cookieSettings: CookieSettings{
+			Path:     "/",
+			Secure:   true,
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+		},
 	}
 
 	p.setupOptions(opts)
@@ -64,6 +76,8 @@ func New(cfg Config, opts ...Option) (*Passkey, error) {
 	if err != nil {
 		return nil, errors.New("can't create webauthn: " + err.Error())
 	}
+
+	p.raiseWarnings()
 
 	return p, nil
 }
@@ -78,10 +92,22 @@ func (p *Passkey) setupOptions(opts []Option) {
 func setupDefaultOptions(p *Passkey) {
 	defaultOpts := []Option{
 		WithLogger(&NullLogger{}),
+		WithSessionCookieName(defaultSessionCookieName),
+		WithCookieMaxAge(defaultCookieMaxAge),
 	}
 
 	for _, opt := range defaultOpts {
 		opt(p)
+	}
+}
+
+func (p *Passkey) raiseWarnings() {
+	if p.cfg.SessionMaxAge == 0 {
+		p.l.Warnf("session max age is not set")
+	}
+
+	if !p.cookieSettings.Secure {
+		p.l.Warnf("cookie is not secure!")
 	}
 }
 
