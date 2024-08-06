@@ -192,51 +192,6 @@ func (_c *MockUser_WebAuthnID_Call) RunAndReturn(run func() []byte) *MockUser_We
 	return _c
 }
 
-// WebAuthnIcon provides a mock function with given fields:
-func (_m *MockUser) WebAuthnIcon() string {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for WebAuthnIcon")
-	}
-
-	var r0 string
-	if rf, ok := ret.Get(0).(func() string); ok {
-		r0 = rf()
-	} else {
-		r0 = ret.Get(0).(string)
-	}
-
-	return r0
-}
-
-// MockUser_WebAuthnIcon_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'WebAuthnIcon'
-type MockUser_WebAuthnIcon_Call struct {
-	*mock.Call
-}
-
-// WebAuthnIcon is a helper method to define mock.On call
-func (_e *MockUser_Expecter) WebAuthnIcon() *MockUser_WebAuthnIcon_Call {
-	return &MockUser_WebAuthnIcon_Call{Call: _e.mock.On("WebAuthnIcon")}
-}
-
-func (_c *MockUser_WebAuthnIcon_Call) Run(run func()) *MockUser_WebAuthnIcon_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run()
-	})
-	return _c
-}
-
-func (_c *MockUser_WebAuthnIcon_Call) Return(_a0 string) *MockUser_WebAuthnIcon_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockUser_WebAuthnIcon_Call) RunAndReturn(run func() string) *MockUser_WebAuthnIcon_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // WebAuthnName provides a mock function with given fields:
 func (_m *MockUser) WebAuthnName() string {
 	ret := _m.Called()

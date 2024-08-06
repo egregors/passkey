@@ -88,10 +88,6 @@ func TestPasskey_beginRegistration(t *testing.T) {
 		WebAuthnName().
 		Return("Berik the Cat")
 
-	user.EXPECT().
-		WebAuthnIcon().
-		Return("")
-
 	tests := []struct {
 		name         string
 		w            *httptest.ResponseRecorder
