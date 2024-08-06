@@ -26,10 +26,6 @@ func (u *User) WebAuthnCredentials() []webauthn.Credential {
 	return u.creds
 }
 
-func (u *User) WebAuthnIcon() string {
-	return "https://pics.com/avatar.png"
-}
-
 func (u *User) PutCredential(credential webauthn.Credential) {
 	u.creds = append(u.creds, credential)
 }
