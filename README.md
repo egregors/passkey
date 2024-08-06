@@ -38,7 +38,7 @@
 > * JS/TS SimpleWebAuthn client – https://github.com/MasterKale/SimpleWebAuthn
 
 Used in project:
-![Static Badge](https://img.shields.io/badge/Go_WebAuthn-v0.10.2-green)
+![Static Badge](https://img.shields.io/badge/Go_WebAuthn-v0.11.0-green)
 ![Static Badge](https://img.shields.io/badge/TS%5CJS%20SimpleWebAuthn-v10.0.0-green)
 
 Actual versions:
