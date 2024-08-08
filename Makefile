@@ -5,6 +5,11 @@ GO_FILES := $(shell find . -name '*.go' | grep -v /vendor/ | grep -v _test.go)
 
 ## Common tasks
 
+.PHONY: dep
+dep: ## Dep stuff we need
+	go install github.com/caddyserver/caddy/v2/cmd/caddy@v2.8.4
+
+
 .PHONY: lint
 lint: ## Lint the files
 	golangci-lint run ./... --timeout 1m -c .golangci.yml
@@ -16,6 +21,10 @@ test: ## Run unittests
 .PHONY: run
 run:  ## Run example project
 	@go run _example/*
+
+.PHONY: caddy-run
+caddy-run: ## Caddy runner
+	caddy run --config caddy_config_caddyfile --adapter caddyfile
 
 .PHONY: gen
 gen:  ## Generate mocks
