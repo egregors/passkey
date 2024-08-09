@@ -14,11 +14,12 @@ import (
 const userKey = "pkUser"
 
 func main() {
-	proto := "http"     // "http" | "https"
-	sub := ""           // "" | "login."
-	host := "localhost" // "localhost" | "example.com"
-	port := ":8080"     // port needs only for starting the server, WebauthnConfig.RPOrigins should not contain port
-	origin := fmt.Sprintf("%s://%s%s", proto, sub, host)
+	proto := "http"       // "http" | "https"
+	sub := ""             // "" | "login."
+	host := "localhost"   // "localhost" | "example.com"
+	originPort := ":8080" // ":8080" | "" if you use revers proxy here should be the most "external" port
+	serverPort := ":8080" // ":8080"
+	origin := fmt.Sprintf("%s://%s%s%s", proto, sub, host, originPort)
 
 	storage := NewStorage()
 
@@ -68,7 +69,7 @@ func main() {
 
 	// start the server
 	fmt.Printf("Listening on %s\n", origin)
-	if err := http.ListenAndServe(port, mux); err != nil {
+	if err := http.ListenAndServe(serverPort, mux); err != nil {
 		panic(err)
 	}
 }
