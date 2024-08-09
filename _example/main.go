@@ -17,8 +17,8 @@ func main() {
 	proto := "http"     // "http" | "https"
 	sub := ""           // "" | "login."
 	host := "localhost" // "localhost" | "example.com"
-	port := ":8080"     // port needs only for starting the server, WebauthnConfig.RPOrigins should not contain port
-	origin := fmt.Sprintf("%s://%s%s", proto, sub, host)
+	port := ":8080"     // ":8080"
+	origin := fmt.Sprintf("%s://%s%s%s", proto, sub, host, port)
 
 	storage := NewStorage()
 
