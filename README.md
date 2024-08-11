@@ -306,7 +306,7 @@ Use [mockery](https://github.com/vektra/mockery) to generate mocks for interface
 
 ### Troubleshooting
 
-## FAQ
+#### FAQ
 
 **Q: I'm getting an error "named cookie not present" when I try to interact with passkey running on `localhost` from
 macOS Safari.**
