@@ -1,24 +1,31 @@
 package main
 
 import (
+	"embed"
 	"fmt"
 	"html/template"
+	"io/fs"
 	"net/http"
 	"net/url"
+	"os"
 	"time"
 
 	"github.com/egregors/passkey"
 	"github.com/go-webauthn/webauthn/webauthn"
 )
 
+//go:embed web/*
+var webFiles embed.FS
+
 const userKey = "pkUser"
 
 func main() {
-	proto := "http"       // "http" | "https"
-	sub := ""             // "" | "login."
-	host := "localhost"   // "localhost" | "example.com"
-	originPort := ":8080" // ":8080" | "" if you use revers proxy here should be the most "external" port
-	serverPort := ":8080" // ":8080"
+	proto := getEnv("PROTO", "http")             // "http" | "https"
+	sub := getEnv("SUB", "")                     // "" | "login."
+	host := getEnv("HOST", "localhost")          // "localhost" | "example.com"
+	originPort := getEnv("ORIGIN_PORT", ":8080") // ":8080" | "" if you use reverse proxy it should be the most "external" port
+	serverPort := getEnv("SERVER_PORT", ":8080") // ":8080"
+
 	origin := fmt.Sprintf("%s://%s%s%s", proto, sub, host, originPort)
 
 	storage := NewStorage()
@@ -46,10 +53,10 @@ func main() {
 
 	// mount the passkey routes
 	pkey.MountRoutes(mux, "/api/")
-	pkey.MountStaticRoutes(mux, "/static/")
 
 	// public routes
-	mux.Handle("/", http.FileServer(http.Dir("./_example/web")))
+	web, _ := fs.Sub(webFiles, "web")
+	mux.Handle("/", http.FileServer(http.FS(web)))
 	mux.HandleFunc("/logout", func(w http.ResponseWriter, r *http.Request) {
 		pkey.Logout(w, r)
 		http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -90,7 +97,7 @@ func privateHandler() func(w http.ResponseWriter, r *http.Request) {
 			UserID: userID,
 		}
 
-		tmpl, err := template.ParseFiles("./_example/web/private.html")
+		tmpl, err := template.ParseFS(webFiles, "web/private.html")
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 
@@ -103,4 +110,12 @@ func privateHandler() func(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+func getEnv(key, defaultValue string) string {
+	if value, ok := os.LookupEnv(key); ok {
+		return value
+	}
+
+	return defaultValue
 }

@@ -1,0 +1,30 @@
+version: '3.9'
+
+services:
+  traefik:
+    image: traefik:v2.9
+    command:
+      - "--providers.docker=true"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--providers.docker.exposedByDefault=false"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "./certs/traefik.localhost.crt:/certs/traefik.localhost.crt"
+      - "./certs/traefik.localhost.key:/certs/traefik.localhost.key"
+    ports:
+      - "80:80"
+      - "443:443"
+
+  app:
+    build: .
+    image: app
+    environment:
+      - PROTO=https
+      - ORIGIN_PORT=
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.app.tls=true"
+      - "traefik.http.routers.app.rule=Host(`localhost`, `192.168.8.151`)"
+      - "traefik.http.routers.app.entrypoints=websecure"
+      - "traefik.http.services.app.loadbalancer.server.port=8080"

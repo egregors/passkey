@@ -137,8 +137,3 @@ func (p *Passkey) setupRoutes() {
 func (p *Passkey) MountRoutes(mux *http.ServeMux, path string) {
 	mux.Handle(path, http.StripPrefix(path[:len(path)-1], p.mux))
 }
-
-// MountStaticRoutes mounts static routes to mux
-func (p *Passkey) MountStaticRoutes(mux *http.ServeMux, path string) {
-	mux.Handle(path, http.StripPrefix(path[:len(path)-1], p.staticMux))
-}

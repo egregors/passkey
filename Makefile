@@ -15,7 +15,18 @@ test: ## Run unittests
 
 .PHONY: run
 run:  ## Run example project
-	@go run _example/*
+	@go run _example/*.go
+
+.PHONY: up
+up:  ## Run example project with local SSL (self-signed certificate)
+	@if [ ! -d "./_example/certs" ]; then \
+		echo ">> Generating self-signed certificate"; \
+		mkdir -p ./_example/certs; \
+		openssl req -x509 -newkey rsa:4096 -nodes -keyout traefik.localhost.key -out traefik.localhost.crt -days 365 -subj "/CN=localhost"; \
+		mv traefik.localhost.key traefik.localhost.crt ./_example/certs; \
+	fi
+	@echo ">> Running example";
+	@docker-compose -f ./_example/docker-compose.yml up --build
 
 .PHONY: gen
 gen:  ## Generate mocks
