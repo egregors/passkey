@@ -23,3 +23,6 @@ go.work.sum
 
 # JB
 .idea/
+
+# self-signed certs
+/_example/certs

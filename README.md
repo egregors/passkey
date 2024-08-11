@@ -14,13 +14,26 @@
 
 ## Table of Contents
 
-- [Features](#features)
-- [Installation](#installation)
-- [Usage](#usage)
-    - [Library Usage](#library-usage)
-    - [Example Application](#example-application)
-- [API](#api)
-- [License](#license)
+<!-- TOC -->
+  * [Table of Contents](#table-of-contents)
+  * [Features](#features)
+  * [Installation](#installation)
+  * [Usage](#usage)
+    * [Library Usage](#library-usage)
+      * [Implement the `UserStore` and `SessionStore` interfaces](#implement-the-userstore-and-sessionstore-interfaces)
+      * [Create a new `Passkey` instance and mount the routes](#create-a-new-passkey-instance-and-mount-the-routes)
+      * [Client-side](#client-side)
+    * [Example Application](#example-application)
+  * [API](#api)
+    * [Middleware](#middleware)
+  * [Development](#development)
+    * [Common tasks](#common-tasks)
+    * [Mocks](#mocks)
+    * [Troubleshooting](#troubleshooting)
+  * [FAQ](#faq)
+  * [Contributing](#contributing)
+  * [License](#license)
+<!-- TOC -->
 
 ## Features
 
@@ -94,77 +107,84 @@ type SessionStore interface {
 package main
 
 import (
-  "fmt"
-  "html/template"
-  "net/http"
-  "net/url"
-  "time"
+	"embed"
+	"fmt"
+	"html/template"
+	"io/fs"
+	"net/http"
+	"net/url"
+	"os"
+	"time"
 
-  "github.com/egregors/passkey"
-  "github.com/go-webauthn/webauthn/webauthn"
+	"github.com/egregors/passkey"
+	"github.com/go-webauthn/webauthn/webauthn"
 )
+
+//go:embed web/*
+var webFiles embed.FS
 
 const userKey = "pkUser"
 
 func main() {
-  proto := "http"       // "http" | "https"
-  sub := ""             // "" | "login."
-  host := "localhost"   // "localhost" | "example.com"
-  originPort := ":8080" // ":8080" | "" if you use revers proxy here should be the most "external" port
-  serverPort := ":8080" // ":8080"
-  origin := fmt.Sprintf("%s://%s%s%s", proto, sub, host, originPort)
+	proto := getEnv("PROTO", "http")             // "http" | "https"
+	sub := getEnv("SUB", "")                     // "" | "login."
+	host := getEnv("HOST", "localhost")          // "localhost" | "example.com"
+	originPort := getEnv("ORIGIN_PORT", ":8080") // ":8080" | "" if you use reverse proxy it should be the most "external" port
+	serverPort := getEnv("SERVER_PORT", ":8080") // ":8080"
 
-  storage := NewStorage()
+	origin := fmt.Sprintf("%s://%s%s%s", proto, sub, host, originPort)
 
-  pkey, err := passkey.New(
-    passkey.Config{
-      WebauthnConfig: &webauthn.Config{
-        RPDisplayName: "Passkey Example", // Display Name for your site
-        RPID:          host,              // Generally the FQDN for your site
-        RPOrigins:     []string{origin},  // The origin URLs allowed for WebAuthn
-      },
-      UserStore:     storage,
-      SessionStore:  storage,
-      SessionMaxAge: 24 * time.Hour,
-    },
-    passkey.WithLogger(NewLogger()),
-    passkey.WithCookieMaxAge(60*time.Minute),
-    passkey.WithInsecureCookie(), // In order to support Safari on localhost. Do not use in production.
-  )
-  if err != nil {
-    panic(err)
-  }
+	storage := NewStorage()
 
-  mux := http.NewServeMux()
+	pkey, err := passkey.New(
+		passkey.Config{
+			WebauthnConfig: &webauthn.Config{
+				RPDisplayName: "Passkey Example", // Display Name for your site
+				RPID:          host,              // Generally the FQDN for your site
+				RPOrigins:     []string{origin},  // The origin URLs allowed for WebAuthn
+			},
+			UserStore:     storage,
+			SessionStore:  storage,
+			SessionMaxAge: 24 * time.Hour,
+		},
+		passkey.WithLogger(NewLogger()),
+		passkey.WithCookieMaxAge(60*time.Minute),
+		passkey.WithInsecureCookie(), // In order to support Safari on localhost. Do not use in production.
+	)
+	if err != nil {
+		panic(err)
+	}
 
-  // mount the passkey routes
-  pkey.MountRoutes(mux, "/api/")
-  pkey.MountStaticRoutes(mux, "/static/")
+	mux := http.NewServeMux()
 
-  // public routes
-  mux.Handle("/", http.FileServer(http.Dir("./_example/web")))
-  mux.HandleFunc("/logout", func(w http.ResponseWriter, r *http.Request) {
-    pkey.Logout(w, r)
-    http.Redirect(w, r, "/", http.StatusSeeOther)
-  })
+	// mount the passkey routes
+	pkey.MountRoutes(mux, "/api/")
 
-  // private routes
-  privateMux := http.NewServeMux()
-  privateMux.HandleFunc("/", privateHandler())
+	// public routes
+	web, _ := fs.Sub(webFiles, "web")
+	mux.Handle("/", http.FileServer(http.FS(web)))
+	mux.HandleFunc("/logout", func(w http.ResponseWriter, r *http.Request) {
+		pkey.Logout(w, r)
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+	})
 
-  // wrap the privateMux with the Auth middleware
-  withAuth := pkey.Auth(
-    userKey,
-    nil,
-    passkey.RedirectUnauthorized(url.URL{Path: "/"}),
-  )
-  mux.Handle("/private", withAuth(privateMux))
+	// private routes
+	privateMux := http.NewServeMux()
+	privateMux.HandleFunc("/", privateHandler())
 
-  // start the server
-  fmt.Printf("Listening on %s\n", origin)
-  if err := http.ListenAndServe(serverPort, mux); err != nil {
-    panic(err)
-  }
+	// wrap the privateMux with the Auth middleware
+	withAuth := pkey.Auth(
+		userKey,
+		nil,
+		passkey.RedirectUnauthorized(url.URL{Path: "/"}),
+	)
+	mux.Handle("/private", withAuth(privateMux))
+
+	// start the server
+	fmt.Printf("Listening on %s\n", origin)
+	if err := http.ListenAndServe(serverPort, mux); err != nil {
+		panic(err)
+	}
 }
 
 ```
@@ -173,12 +193,17 @@ You can optionally provide a logger to the `New` function using the `WithLogger`
 
 Full list of options:
 
-| Name                  | Default                               | Description                            |
-|-----------------------|---------------------------------------|----------------------------------------|
-| WithLogger            | NullLogger                            | Provide custom logger                  |
-| WithInsecureCookie    | Disabled (cookie is secure by default | Sets Cookie.Secure to false            |
-| WithSessionCookieName | `sid`                                 | Sets the name of the session cookie    |
-| WithCookieMaxAge      | 60 minutes                            | Sets the max age of the session cookie |
+| Name                  | Default                                | Description                            |
+|-----------------------|----------------------------------------|----------------------------------------|
+| WithLogger            | NullLogger                             | Provide custom logger                  |
+| WithInsecureCookie    | Disabled (cookie is secure by default) | Sets Cookie.Secure to false            |
+| WithSessionCookieName | `sid`                                  | Sets the name of the session cookie    |
+| WithCookieMaxAge      | 60 minutes                             | Sets the max age of the session cookie |
+
+#### Client-side
+
+You need a client-side library that can be used to interact with the server-side library. In example app we use
+[SimpleWebAuthn](https://github.com/MasterKale/SimpleWebAuthn) library (check `_example/web` directory).
 
 ### Example Application
 
@@ -186,10 +211,16 @@ The library comes with an example application that demonstrates how to use it. T
 just run the following command:
 
 ```bash
-make run
+# go run local example app on http://localhost:8080 (no ssl)
+make run 
 ```
 
-This will start the example application on http://localhost:8080.
+or
+
+```bash
+# run example app in docker container on https://localhost (with self-signed certificate)
+make up 
+```
 
 ## API
 
@@ -197,7 +228,6 @@ This will start the example application on http://localhost:8080.
 |---------------------------------------------------------------------------------------------------|-----------------------------------------------------------|
 | `New(cfg Config, opts ...Option) (*Passkey, error)`                                               | Creates a new Passkey instance.                           |
 | `MountRoutes(mux *http.ServeMux, path string)`                                                    | Mounts the Passkey routes onto a given HTTP multiplexer.  |
-| `MountStaticRoutes(mux *http.ServeMux, path string)`                                              | Mounts the static routes onto a given HTTP multiplexer.   |
 | `Auth(userIDKey string, onSuccess, onFail http.HandlerFunc) func(next http.Handler) http.Handler` | Middleware to protect routes that require authentication. |
 
 ### Middleware
@@ -258,19 +288,42 @@ Usage: make [task]
 
 task                 help
 ------               ----
-
+                     
 lint                 Lint the files
 test                 Run unittests
 run                  Run example project
+up                   Run example project with local SSL (self-signed certificate)
 gen                  Generate mocks
 update-go-deps       Updating Go dependencies
-
+                     
 help                 Show help message
+
 ```
 
 ### Mocks
 
-Use [mockery](https://github.com/vektra/mockery) to generate mocks for interfaces.
+Use [mockery](https://github.com/vektra/mockery) to generate mocks for interfaces.A
+
+### Troubleshooting
+
+## FAQ
+
+**Q: I'm getting an error "named cookie not present" when I try to interact with passkey running on `localhost` from
+macOS Safari.**
+
+A: This is a known issue with Safari and localhost. You can work around it by using the `WithInsecureCookie` option when
+creating a new `Passkey` instance. This will set the `Secure` flag on the session cookie to `false`.
+
+**Q: I'm getting an error "Error validating origin" when I try to interact with passkey.**
+
+A: This error occurs when the origin URL is not included in the `RPOrigins` list. Make sure that the origin URL is
+included in the `RPOrigins` list when creating a new `Passkey` instance.
+
+**Q: I'm getting an error "WebAuthn in not supported in this browser" when I try to interact with passkey on `localhost`
+from iOS Safari.**
+
+A: Mobile Safari no not store insecure cookies. To play around with the example app on iOS Safari, you should run in
+with self-signed certificate. Use `make up` to run the example app in docker container with self-signed certificate.
 
 ## Contributing
 
