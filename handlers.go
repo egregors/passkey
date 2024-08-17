@@ -37,7 +37,11 @@ func (p *Passkey) beginRegistration(w http.ResponseWriter, r *http.Request) {
 	t, err := p.sessionStore.GenSessionID()
 	if err != nil {
 		p.l.Errorf("can't generate session id: %s", err.Error())
-		JSONResponse(w, fmt.Sprintf("can't generate session id: %s", err.Error()), http.StatusInternalServerError)
+		JSONResponse(
+			w,
+			fmt.Sprintf("can't generate session id: %s", err.Error()),
+			http.StatusInternalServerError,
+		)
 
 		return
 	}
@@ -70,7 +74,7 @@ func (p *Passkey) finishRegistration(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// TODO: username != user id? need to check
-	user := p.userStore.GetOrCreateUser(string(session.UserID)) // Get the user
+	user := p.userStore.GetOrCreateUserByWebAuthnId(session.UserID) // Get the user
 
 	credential, err := p.webAuthn.FinishRegistration(user, *session, r)
 	if err != nil {
@@ -120,7 +124,11 @@ func (p *Passkey) beginLogin(w http.ResponseWriter, r *http.Request) {
 	t, err := p.sessionStore.GenSessionID()
 	if err != nil {
 		p.l.Errorf("can't generate session id: %s", err.Error())
-		JSONResponse(w, fmt.Sprintf("can't generate session id: %s", err.Error()), http.StatusInternalServerError)
+		JSONResponse(
+			w,
+			fmt.Sprintf("can't generate session id: %s", err.Error()),
+			http.StatusInternalServerError,
+		)
 
 		return
 	}
@@ -146,7 +154,7 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 	session, _ := p.sessionStore.GetSession(sid.Value) // FIXME: cover invalid session
 
 	// TODO: username != user id? need to check
-	user := p.userStore.GetOrCreateUser(string(session.UserID)) // Get the user
+	user := p.userStore.GetOrCreateUserByWebAuthnId(session.UserID) // Get the user
 
 	credential, err := p.webAuthn.FinishLogin(user, *session, r)
 	if err != nil {
@@ -173,7 +181,11 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 	t, err := p.sessionStore.GenSessionID()
 	if err != nil {
 		p.l.Errorf("can't generate session id: %s", err.Error())
-		JSONResponse(w, fmt.Sprintf("can't generate session id: %s", err.Error()), http.StatusInternalServerError)
+		JSONResponse(
+			w,
+			fmt.Sprintf("can't generate session id: %s", err.Error()),
+			http.StatusInternalServerError,
+		)
 
 		return
 	}
