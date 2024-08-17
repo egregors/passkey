@@ -7,6 +7,8 @@ import (
 
 	"github.com/egregors/passkey"
 	"github.com/go-webauthn/webauthn/webauthn"
+
+	"github.com/mstarongithub/passkey"
 )
 
 type Storage struct {
@@ -51,6 +53,18 @@ func (s *Storage) SaveUser(user passkey.User) {
 	defer s.uMu.Unlock()
 
 	s.users[user.WebAuthnName()] = user
+}
+
+func (s *Storage) GetUserByWebAuthnId(id []byte) passkey.User {
+	s.uMu.Lock()
+	defer s.uMu.Unlock()
+
+	// Storage implementation assumes that username == webauthn Id
+	if user, ok := s.users[string(id)]; ok {
+		return user
+	} else {
+		return nil
+	}
 }
 
 // -- Session storage methods --
