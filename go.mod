@@ -1,4 +1,4 @@
-module github.com/egregors/passkey
+module github.com/mstarongithub/passkey
 
 go 1.22
 
