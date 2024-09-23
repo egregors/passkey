@@ -45,6 +45,9 @@
 > [!WARNING]  
 > Stable version is not released yet. The API and the lib are under development.
 
+> [!WARNING]  
+> I’m on vacation until October 11th. Development will resume after that. ⛵️⛵️⛵️⛵️
+
 > [!NOTE]
 > In general, this library is built on top of two open-source solutions:
 > * Golang WebAuthn Library – https://github.com/go-webauthn/webauthn
