@@ -4,10 +4,19 @@ import "github.com/go-webauthn/webauthn/webauthn"
 
 type User struct {
 	ID          []byte
-	DisplayName string
 	Name        string
+	DisplayName string
 
 	creds []webauthn.Credential
+}
+
+func New(ID []byte, name, displayName string) *User {
+	return &User{
+		ID:          ID,
+		Name:        name,
+		DisplayName: displayName,
+		creds:       make([]webauthn.Credential, 0, 0),
+	}
 }
 
 func (u *User) WebAuthnID() []byte {
@@ -26,6 +35,6 @@ func (u *User) WebAuthnCredentials() []webauthn.Credential {
 	return u.creds
 }
 
-func (u *User) PutCredential(credential webauthn.Credential) {
+func (u *User) AddCredential(credential webauthn.Credential) {
 	u.creds = append(u.creds, credential)
 }

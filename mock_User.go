@@ -20,35 +20,35 @@ func (_m *MockUser) EXPECT() *MockUser_Expecter {
 	return &MockUser_Expecter{mock: &_m.Mock}
 }
 
-// PutCredential provides a mock function with given fields: _a0
-func (_m *MockUser) PutCredential(_a0 webauthn.Credential) {
+// AddCredential provides a mock function with given fields: _a0
+func (_m *MockUser) AddCredential(_a0 webauthn.Credential) {
 	_m.Called(_a0)
 }
 
-// MockUser_PutCredential_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PutCredential'
-type MockUser_PutCredential_Call struct {
+// MockUser_AddCredential_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AddCredential'
+type MockUser_AddCredential_Call struct {
 	*mock.Call
 }
 
-// PutCredential is a helper method to define mock.On call
+// AddCredential is a helper method to define mock.On call
 //   - _a0 webauthn.Credential
-func (_e *MockUser_Expecter) PutCredential(_a0 interface{}) *MockUser_PutCredential_Call {
-	return &MockUser_PutCredential_Call{Call: _e.mock.On("PutCredential", _a0)}
+func (_e *MockUser_Expecter) AddCredential(_a0 interface{}) *MockUser_AddCredential_Call {
+	return &MockUser_AddCredential_Call{Call: _e.mock.On("AddCredential", _a0)}
 }
 
-func (_c *MockUser_PutCredential_Call) Run(run func(_a0 webauthn.Credential)) *MockUser_PutCredential_Call {
+func (_c *MockUser_AddCredential_Call) Run(run func(_a0 webauthn.Credential)) *MockUser_AddCredential_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(webauthn.Credential))
 	})
 	return _c
 }
 
-func (_c *MockUser_PutCredential_Call) Return() *MockUser_PutCredential_Call {
+func (_c *MockUser_AddCredential_Call) Return() *MockUser_AddCredential_Call {
 	_c.Call.Return()
 	return _c
 }
 
-func (_c *MockUser_PutCredential_Call) RunAndReturn(run func(webauthn.Credential)) *MockUser_PutCredential_Call {
+func (_c *MockUser_AddCredential_Call) RunAndReturn(run func(webauthn.Credential)) *MockUser_AddCredential_Call {
 	_c.Call.Return(run)
 	return _c
 }

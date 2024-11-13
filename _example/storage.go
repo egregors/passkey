@@ -16,6 +16,20 @@ type Storage struct {
 	uMu, sMu sync.RWMutex
 }
 
+func (s *Storage) New(id []byte, name string, displayName string) passkey.User {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (s *Storage) Get(userName string) passkey.User {
+	return nil
+}
+
+func (s *Storage) Update(u passkey.User) error {
+	//TODO implement me
+	panic("implement me")
+}
+
 func NewStorage() *Storage {
 	return &Storage{
 		users:    make(map[string]passkey.User),

@@ -1,6 +1,7 @@
 package passkey
 
 import (
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"net/http"
@@ -48,6 +49,7 @@ type Passkey struct {
 
 	l              Logger
 	cookieSettings CookieSettings
+	genUserID      func() []byte
 }
 
 // New creates new Passkey instance
@@ -94,6 +96,14 @@ func setupDefaultOptions(p *Passkey) {
 		WithLogger(&NullLogger{}),
 		WithSessionCookieName(defaultSessionCookieName),
 		WithCookieMaxAge(defaultCookieMaxAge),
+		WithUserIDGenerator(func() []byte {
+			id := make([]byte, 64)
+
+			// FIXME: handle error
+			_, _ = rand.Read(id)
+
+			return id
+		}),
 	}
 
 	for _, opt := range defaultOpts {

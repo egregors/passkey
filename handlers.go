@@ -1,6 +1,7 @@
 package passkey
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -9,20 +10,32 @@ import (
 	"github.com/go-webauthn/webauthn/webauthn"
 )
 
+type payload struct {
+	Name        string `json:"name"`
+	DisplayName string `json:"displayName,omitempty"`
+}
+
 func (p *Passkey) beginRegistration(w http.ResponseWriter, r *http.Request) {
 	p.l.Infof("begin registration")
 
-	// TODO: i don't like this, but it's a quick solution
-	//  can we actually do not use the username at all?
-	username, err := getUsername(r)
+	userData, err := p.parsePayload(r)
 	if err != nil {
-		p.l.Errorf("can't get username: %s", err.Error())
-		JSONResponse(w, fmt.Sprintf("can't get username: %s", err.Error()), http.StatusBadRequest)
+		msg := fmt.Sprintf("bad payload: %s", err.Error())
+		p.l.Errorf(msg)
+		JSONResponse(w, fmt.Sprintf("beginRegistration failed: %s", msg), http.StatusBadRequest)
 
 		return
 	}
 
-	user := p.userStore.GetOrCreateUser(username)
+	// get or create user
+	user := cmp.Or(
+		p.userStore.Get(userData.Name),
+		p.userStore.New(
+			p.genUserID(),
+			userData.Name,
+			userData.DisplayName,
+		),
+	)
 
 	options, session, err := p.webAuthn.BeginRegistration(user)
 	if err != nil {
@@ -70,7 +83,14 @@ func (p *Passkey) finishRegistration(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// TODO: username != user id? need to check
-	user := p.userStore.GetOrCreateUser(string(session.UserID)) // Get the user
+	// user := p.userStore.GetOrCreateUser(string(session.UserID)) // Get the user
+	user := p.userStore.Get(string(session.UserID))
+	if user == nil {
+		p.l.Errorf("can't get user")
+		JSONResponse(w, "can't get user", http.StatusBadRequest)
+
+		return
+	}
 
 	credential, err := p.webAuthn.FinishRegistration(user, *session, r)
 	if err != nil {
@@ -84,8 +104,18 @@ func (p *Passkey) finishRegistration(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// If creation was successful, store the credential object
-	user.PutCredential(*credential)
-	p.userStore.SaveUser(user)
+	user.AddCredential(*credential)
+
+	err = p.userStore.Update(user)
+	if err != nil {
+		msg := fmt.Sprintf("can't finish registration: %s", err.Error())
+		p.l.Errorf(msg)
+
+		p.deleteSessionCookie(w)
+		JSONResponse(w, msg, http.StatusBadRequest)
+
+		return
+	}
 
 	p.sessionStore.DeleteSession(sid.Value)
 	p.deleteSessionCookie(w)
@@ -96,15 +126,18 @@ func (p *Passkey) finishRegistration(w http.ResponseWriter, r *http.Request) {
 
 func (p *Passkey) beginLogin(w http.ResponseWriter, r *http.Request) {
 	p.l.Infof("begin login")
-	username, err := getUsername(r)
+
+	userData, err := p.parsePayload(r)
 	if err != nil {
-		p.l.Errorf("can't get user name: %s", err.Error())
-		JSONResponse(w, fmt.Sprintf("can't get user name: %s", err.Error()), http.StatusBadRequest)
+		msg := fmt.Sprintf("bad payload: %s", err.Error())
+		p.l.Errorf(msg)
+		JSONResponse(w, fmt.Sprintf("beginLogin failed: %s", msg), http.StatusBadRequest)
 
 		return
 	}
 
-	user := p.userStore.GetOrCreateUser(username)
+	// FIXME: it probably should be user.id
+	user := p.userStore.Get(userData.Name)
 
 	options, session, err := p.webAuthn.BeginLogin(user)
 	if err != nil {
@@ -146,7 +179,9 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 	session, _ := p.sessionStore.GetSession(sid.Value) // FIXME: cover invalid session
 
 	// TODO: username != user id? need to check
-	user := p.userStore.GetOrCreateUser(string(session.UserID)) // Get the user
+	// user := p.userStore.GetOrCreateUser(string(session.UserID)) // Get the user
+	// FIXME: don't sure about this
+	user := p.userStore.Get(string(session.UserID))
 
 	credential, err := p.webAuthn.FinishLogin(user, *session, r)
 	if err != nil {
@@ -162,8 +197,9 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// If login was successful, update the credential object
-	user.PutCredential(*credential)
-	p.userStore.SaveUser(user)
+	user.AddCredential(*credential)
+	// FIXME: handle error
+	p.userStore.Update(user)
 
 	// Delete the login session data
 	p.sessionStore.DeleteSession(sid.Value)
@@ -189,21 +225,23 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 	JSONResponse(w, "Login Success", http.StatusOK)
 }
 
-// getUsername extracts an username from json request
-func getUsername(r *http.Request) (string, error) {
-	var u struct {
-		Username string `json:"username"`
+func (p *Passkey) parsePayload(r *http.Request) (payload, error) {
+	var pld payload
+	if err := json.NewDecoder(r.Body).Decode(&pld); err != nil {
+		p.l.Errorf("can't decode payload: %s", err.Error())
+
+		return payload{}, err
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&u); err != nil {
-		return "", err
+	// user.Name is required
+	if pld.Name == "" {
+		return payload{}, ErrNoUsername
 	}
 
-	if u.Username == "" {
-		return "", ErrNoUsername
-	}
+	// if user.DisplayName is empty, use user.Name
+	pld.DisplayName = cmp.Or(pld.DisplayName, pld.Name)
 
-	return u.Username, nil
+	return pld, nil
 }
 
 // JSONResponse sends json response

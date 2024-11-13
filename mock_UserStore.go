@@ -17,17 +17,17 @@ func (_m *MockUserStore) EXPECT() *MockUserStore_Expecter {
 	return &MockUserStore_Expecter{mock: &_m.Mock}
 }
 
-// GetOrCreateUser provides a mock function with given fields: userID
-func (_m *MockUserStore) GetOrCreateUser(userID string) User {
-	ret := _m.Called(userID)
+// Get provides a mock function with given fields: userName
+func (_m *MockUserStore) Get(userName string) User {
+	ret := _m.Called(userName)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetOrCreateUser")
+		panic("no return value specified for Get")
 	}
 
 	var r0 User
 	if rf, ok := ret.Get(0).(func(string) User); ok {
-		r0 = rf(userID)
+		r0 = rf(userName)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(User)
@@ -37,63 +37,126 @@ func (_m *MockUserStore) GetOrCreateUser(userID string) User {
 	return r0
 }
 
-// MockUserStore_GetOrCreateUser_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetOrCreateUser'
-type MockUserStore_GetOrCreateUser_Call struct {
+// MockUserStore_Get_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Get'
+type MockUserStore_Get_Call struct {
 	*mock.Call
 }
 
-// GetOrCreateUser is a helper method to define mock.On call
-//   - userID string
-func (_e *MockUserStore_Expecter) GetOrCreateUser(userID interface{}) *MockUserStore_GetOrCreateUser_Call {
-	return &MockUserStore_GetOrCreateUser_Call{Call: _e.mock.On("GetOrCreateUser", userID)}
+// Get is a helper method to define mock.On call
+//   - userName string
+func (_e *MockUserStore_Expecter) Get(userName interface{}) *MockUserStore_Get_Call {
+	return &MockUserStore_Get_Call{Call: _e.mock.On("Get", userName)}
 }
 
-func (_c *MockUserStore_GetOrCreateUser_Call) Run(run func(userID string)) *MockUserStore_GetOrCreateUser_Call {
+func (_c *MockUserStore_Get_Call) Run(run func(userName string)) *MockUserStore_Get_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(string))
 	})
 	return _c
 }
 
-func (_c *MockUserStore_GetOrCreateUser_Call) Return(_a0 User) *MockUserStore_GetOrCreateUser_Call {
+func (_c *MockUserStore_Get_Call) Return(_a0 User) *MockUserStore_Get_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockUserStore_GetOrCreateUser_Call) RunAndReturn(run func(string) User) *MockUserStore_GetOrCreateUser_Call {
+func (_c *MockUserStore_Get_Call) RunAndReturn(run func(string) User) *MockUserStore_Get_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// SaveUser provides a mock function with given fields: _a0
-func (_m *MockUserStore) SaveUser(_a0 User) {
-	_m.Called(_a0)
+// New provides a mock function with given fields: id, name, displayName
+func (_m *MockUserStore) New(id []byte, name string, displayName string) User {
+	ret := _m.Called(id, name, displayName)
+
+	if len(ret) == 0 {
+		panic("no return value specified for New")
+	}
+
+	var r0 User
+	if rf, ok := ret.Get(0).(func([]byte, string, string) User); ok {
+		r0 = rf(id, name, displayName)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(User)
+		}
+	}
+
+	return r0
 }
 
-// MockUserStore_SaveUser_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SaveUser'
-type MockUserStore_SaveUser_Call struct {
+// MockUserStore_New_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'New'
+type MockUserStore_New_Call struct {
 	*mock.Call
 }
 
-// SaveUser is a helper method to define mock.On call
-//   - _a0 User
-func (_e *MockUserStore_Expecter) SaveUser(_a0 interface{}) *MockUserStore_SaveUser_Call {
-	return &MockUserStore_SaveUser_Call{Call: _e.mock.On("SaveUser", _a0)}
+// New is a helper method to define mock.On call
+//   - id []byte
+//   - name string
+//   - displayName string
+func (_e *MockUserStore_Expecter) New(id interface{}, name interface{}, displayName interface{}) *MockUserStore_New_Call {
+	return &MockUserStore_New_Call{Call: _e.mock.On("New", id, name, displayName)}
 }
 
-func (_c *MockUserStore_SaveUser_Call) Run(run func(_a0 User)) *MockUserStore_SaveUser_Call {
+func (_c *MockUserStore_New_Call) Run(run func(id []byte, name string, displayName string)) *MockUserStore_New_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].([]byte), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockUserStore_New_Call) Return(_a0 User) *MockUserStore_New_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockUserStore_New_Call) RunAndReturn(run func([]byte, string, string) User) *MockUserStore_New_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Update provides a mock function with given fields: u
+func (_m *MockUserStore) Update(u User) error {
+	ret := _m.Called(u)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Update")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(User) error); ok {
+		r0 = rf(u)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockUserStore_Update_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Update'
+type MockUserStore_Update_Call struct {
+	*mock.Call
+}
+
+// Update is a helper method to define mock.On call
+//   - u User
+func (_e *MockUserStore_Expecter) Update(u interface{}) *MockUserStore_Update_Call {
+	return &MockUserStore_Update_Call{Call: _e.mock.On("Update", u)}
+}
+
+func (_c *MockUserStore_Update_Call) Run(run func(u User)) *MockUserStore_Update_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(User))
 	})
 	return _c
 }
 
-func (_c *MockUserStore_SaveUser_Call) Return() *MockUserStore_SaveUser_Call {
-	_c.Call.Return()
+func (_c *MockUserStore_Update_Call) Return(_a0 error) *MockUserStore_Update_Call {
+	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockUserStore_SaveUser_Call) RunAndReturn(run func(User)) *MockUserStore_SaveUser_Call {
+func (_c *MockUserStore_Update_Call) RunAndReturn(run func(User) error) *MockUserStore_Update_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -4,6 +4,16 @@ import "time"
 
 type Option func(*Passkey)
 
+// WithUserIDGenerator sets the user ID generator for the passkey instance. According to the WebAuthn spec, user ID
+// should be a byte array sized 64 bytes.
+func WithUserIDGenerator(f func() []byte) Option {
+	return func(p *Passkey) {
+		if f != nil {
+			p.genUserID = f
+		}
+	}
+}
+
 // WithLogger sets the logger for the passkey instance.
 func WithLogger(l Logger) Option {
 	return func(p *Passkey) {

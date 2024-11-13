@@ -11,12 +11,13 @@ type Logger interface {
 
 type User interface {
 	webauthn.User
-	PutCredential(webauthn.Credential)
+	AddCredential(webauthn.Credential)
 }
 
 type UserStore interface {
-	GetOrCreateUser(userID string) User
-	SaveUser(User)
+	New(id []byte, name string, displayName string) User
+	Get(userName string) User
+	Update(u User) error
 }
 
 type SessionStore interface {

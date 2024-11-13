@@ -16,7 +16,7 @@ async function register() {
         // Get registration options from your server. Here, we also receive the challenge.
         const response = await fetch('/api/passkey/registerBegin', {
             method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({username: username})
+            body: JSON.stringify({name: username})
         });
 
         // Check if the registration options are ok.
@@ -63,7 +63,7 @@ async function login() {
         // Get login options from your server. Here, we also receive the challenge.
         const response = await fetch('/api/passkey/loginBegin', {
             method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({username: username})
+            body: JSON.stringify({name: username})
         });
         // Check if the login options are ok.
         if (!response.ok) {
