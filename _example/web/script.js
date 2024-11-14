@@ -30,7 +30,7 @@ async function register() {
 
         // This triggers the browser to display the passkey / WebAuthn modal (e.g. Face ID, Touch ID, Windows Hello).
         // A new attestation is created. This also means a new public-private-key pair is created.
-        const attestationResponse = await SimpleWebAuthnBrowser.startRegistration(options.publicKey);
+        const attestationResponse = await SimpleWebAuthnBrowser.startRegistration({optionsJSON: options.publicKey});
 
         // Send attestationResponse back to server for verification and storage.
         const verificationResponse = await fetch('/api/passkey/registerFinish', {
@@ -41,7 +41,6 @@ async function register() {
             },
             body: JSON.stringify(attestationResponse)
         });
-
 
         const msg = await verificationResponse.json();
         if (verificationResponse.ok) {
@@ -75,7 +74,7 @@ async function login() {
 
         // This triggers the browser to display the passkey / WebAuthn modal (e.g. Face ID, Touch ID, Windows Hello).
         // A new assertionResponse is created. This also means that the challenge has been signed.
-        const assertionResponse = await SimpleWebAuthnBrowser.startAuthentication(options.publicKey);
+        const assertionResponse = await SimpleWebAuthnBrowser.startAuthentication({optionsJSON: options.publicKey});
 
         // Send assertionResponse back to server for verification.
         const verificationResponse = await fetch('/api/passkey/loginFinish', {
