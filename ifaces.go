@@ -16,6 +16,7 @@ type User interface {
 
 type UserStore interface {
 	GetOrCreateUser(userID string) User
+	GetUserByWebAuthnId(id []byte) User
 	SaveUser(User)
 }
 
