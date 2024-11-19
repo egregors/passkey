@@ -1,7 +1,10 @@
 package passkey
 
-import "github.com/go-webauthn/webauthn/webauthn"
+import (
+	"github.com/go-webauthn/webauthn/webauthn"
+)
 
+// Logger is a simple logger interface
 type Logger interface {
 	Errorf(format string, v ...any)
 	Debugf(format string, v ...any)
@@ -9,27 +12,26 @@ type Logger interface {
 	Warnf(format string, v ...any)
 }
 
+// User is a user with webauthn credentials
 type User interface {
 	webauthn.User
 	PutCredential(webauthn.Credential)
 }
 
+// UserStore is a persistent storage for users and credentials
 type UserStore interface {
-	GetOrCreateUser(userID string) User
-	SaveUser(User)
+	Create(username string) (User, error)
+	Update(User) error
+	Get(userID []byte) (User, error)
+	GetByName(username string) (User, error)
 }
 
+// SessionStore is a storage for session data
+// FIXME: I shouldn't use this session for post auth session. It's just for the registration process
 type SessionStore interface {
-	GenSessionID() (string, error)
 	GetSession(token string) (*webauthn.SessionData, bool)
 	SaveSession(token string, data *webauthn.SessionData)
 	DeleteSession(token string)
 }
 
-// NullLogger is a logger that does nothing
-type NullLogger struct{}
-
-func (n NullLogger) Errorf(_ string, _ ...any) {}
-func (n NullLogger) Debugf(_ string, _ ...any) {}
-func (n NullLogger) Infof(_ string, _ ...any)  {}
-func (n NullLogger) Warnf(_ string, _ ...any)  {}
+// TODO: add post auth session store

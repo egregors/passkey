@@ -6,7 +6,7 @@ import "net/http"
 func (p *Passkey) Logout(w http.ResponseWriter, r *http.Request) {
 	sid, err := r.Cookie(p.cookieSettings.Name)
 	if err != nil {
-		p.l.Errorf("can't get session cookie: %s", err.Error())
+		p.log.Errorf("can't get session cookie: %s", err.Error())
 
 		return
 	}

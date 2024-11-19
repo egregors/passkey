@@ -7,6 +7,10 @@ import (
 )
 
 func TestWithLogger(t *testing.T) {
+	p := &Passkey{}
+	setupDefaultOptions(p)
+
+	defaultLogger := p.log
 	customLogger := NewMockLogger(t)
 
 	tests := []struct {
@@ -17,7 +21,7 @@ func TestWithLogger(t *testing.T) {
 		{
 			name: "err: nil (default logger should be used)",
 			l:    nil,
-			want: NullLogger{},
+			want: defaultLogger,
 		},
 		{
 			name: "succ: custom logger",
@@ -27,13 +31,10 @@ func TestWithLogger(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := &Passkey{
-				l: NullLogger{}, // default logger
-			}
 			opt := WithLogger(tt.l)
 			opt(p)
 
-			assert.Equal(t, tt.want, p.l)
+			assert.Equal(t, tt.want, p.log)
 		})
 	}
 }

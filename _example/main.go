@@ -10,8 +10,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/egregors/passkey"
 	"github.com/go-webauthn/webauthn/webauthn"
+
+	"github.com/egregors/passkey"
+	"github.com/egregors/passkey/log"
 )
 
 //go:embed web/*
@@ -29,6 +31,7 @@ func main() {
 	origin := fmt.Sprintf("%s://%s%s%s", proto, sub, host, originPort)
 
 	storage := NewStorage()
+	l := log.NewLogger()
 
 	pkey, err := passkey.New(
 		passkey.Config{
@@ -41,7 +44,7 @@ func main() {
 			SessionStore:  storage,
 			SessionMaxAge: 24 * time.Hour,
 		},
-		passkey.WithLogger(NewLogger()),
+		passkey.WithLogger(l),
 		passkey.WithCookieMaxAge(60*time.Minute),
 		passkey.WithInsecureCookie(), // In order to support Safari on localhost. Do not use in production.
 	)
@@ -75,7 +78,7 @@ func main() {
 	mux.Handle("/private", withAuth(privateMux))
 
 	// start the server
-	fmt.Printf("Listening on %s\n", origin)
+	l.Infof("Listening on %s\n", origin)
 	if err := http.ListenAndServe(serverPort, mux); err != nil {
 		panic(err)
 	}

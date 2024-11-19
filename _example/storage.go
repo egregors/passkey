@@ -1,12 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/base64"
+	"fmt"
 	"sync"
 
-	"github.com/egregors/passkey"
 	"github.com/go-webauthn/webauthn/webauthn"
+	"github.com/google/uuid"
+
+	"github.com/egregors/passkey"
 )
 
 type Storage struct {
@@ -27,6 +31,57 @@ func NewStorage() *Storage {
 
 // -- User storage methods --
 
+func (s *Storage) Update(user passkey.User) error {
+	s.uMu.Lock()
+	defer s.uMu.Unlock()
+
+	s.users[user.WebAuthnName()] = user
+
+	return nil
+}
+
+func (s *Storage) Get(userID []byte) (passkey.User, error) {
+	s.uMu.RLock()
+	defer s.uMu.RUnlock()
+
+	// TODO: full scan, optimize eventually
+	for _, u := range s.users {
+		if bytes.Equal(u.WebAuthnID(), userID) {
+			return u, nil
+		}
+	}
+
+	return nil, fmt.Errorf("user not found")
+}
+
+func (s *Storage) GetByName(username string) (passkey.User, error) {
+	s.uMu.RLock()
+	defer s.uMu.RUnlock()
+
+	if u, ok := s.users[username]; ok {
+		return u, nil
+	}
+
+	return nil, fmt.Errorf("user not found")
+}
+
+func (s *Storage) Create(username string) (passkey.User, error) {
+	s.uMu.Lock()
+	defer s.uMu.Unlock()
+
+	if _, ok := s.users[username]; ok {
+		return nil, fmt.Errorf("user %s already exists", username)
+	}
+
+	u := &User{
+		ID:   []byte(uuid.NewString()),
+		Name: username,
+	}
+	s.users[username] = u
+
+	return u, nil
+}
+
 func (s *Storage) GetOrCreateUser(userName string) passkey.User {
 	s.uMu.Lock()
 	defer s.uMu.Unlock()
@@ -44,13 +99,6 @@ func (s *Storage) GetOrCreateUser(userName string) passkey.User {
 	s.users[userName] = &u
 
 	return &u
-}
-
-func (s *Storage) SaveUser(user passkey.User) {
-	s.uMu.Lock()
-	defer s.uMu.Unlock()
-
-	s.users[user.WebAuthnName()] = user
 }
 
 // -- Session storage methods --

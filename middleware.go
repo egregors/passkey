@@ -25,6 +25,8 @@ func (p *Passkey) Auth(userIDKey string, onSuccess, onFail http.HandlerFunc) fun
 				return
 			}
 
+			// FIXME: i shouldn't use registration \ authorization session store here
+			//   it should be a separate store with a mach lighter session object
 			session, ok := p.sessionStore.GetSession(sid.Value)
 			if !ok {
 				exec(onFail, w, r)
@@ -39,6 +41,7 @@ func (p *Passkey) Auth(userIDKey string, onSuccess, onFail http.HandlerFunc) fun
 			}
 
 			ctx := r.Context()
+			// TODO: add username as well?
 			ctx = context.WithValue(ctx, userIDKey, string(session.UserID))
 			r = r.WithContext(ctx)
 

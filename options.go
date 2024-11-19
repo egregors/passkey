@@ -8,7 +8,7 @@ type Option func(*Passkey)
 func WithLogger(l Logger) Option {
 	return func(p *Passkey) {
 		if l != nil {
-			p.l = l
+			p.log = l
 		}
 	}
 }
@@ -17,6 +17,15 @@ func WithLogger(l Logger) Option {
 func WithInsecureCookie() Option {
 	return func(p *Passkey) {
 		p.cookieSettings.Secure = false
+	}
+}
+
+// WithSessionIDGenerator sets the function to generate session ID.
+func WithSessionIDGenerator(genFn func() (string, error)) Option {
+	return func(p *Passkey) {
+		if genFn != nil {
+			p.genSessionID = genFn
+		}
 	}
 }
 
