@@ -32,7 +32,7 @@ func TestAuth(t *testing.T) {
 				sessionStore: func() SessionStore {
 					store := NewMockSessionStore(t)
 					store.EXPECT().
-						GetSession("valid").
+						Get("valid").
 						Return(&webauthn.SessionData{
 							Expires: time.Now().Add(time.Hour),
 						}, true).
@@ -56,7 +56,7 @@ func TestAuth(t *testing.T) {
 				sessionStore: func() SessionStore {
 					store := NewMockSessionStore(t)
 					store.EXPECT().
-						GetSession("valid").
+						Get("valid").
 						Return(&webauthn.SessionData{
 							Expires: time.Now().Add(time.Hour),
 						}, true).
@@ -86,7 +86,7 @@ func TestAuth(t *testing.T) {
 				sessionStore: func() SessionStore {
 					store := NewMockSessionStore(t)
 					store.EXPECT().
-						GetSession("missing").
+						Get("missing").
 						Return(nil, false).
 						Times(1)
 
@@ -128,7 +128,7 @@ func TestAuth(t *testing.T) {
 				sessionStore: func() SessionStore {
 					store := NewMockSessionStore(t)
 					store.EXPECT().
-						GetSession("missing").
+						Get("missing").
 						Return(nil, false).
 						Times(1)
 
@@ -150,7 +150,7 @@ func TestAuth(t *testing.T) {
 				sessionStore: func() SessionStore {
 					store := NewMockSessionStore(t)
 					store.EXPECT().
-						GetSession("expired").
+						Get("expired").
 						Return(&webauthn.SessionData{
 							Expires: time.Now().Add(-time.Hour),
 						}, true).

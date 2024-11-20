@@ -13,36 +13,32 @@ import (
 	"github.com/egregors/passkey"
 )
 
-type Storage struct {
-	users    map[string]passkey.User
-	sessions map[string]webauthn.SessionData
+// -- User storage methods --
 
-	uMu, sMu sync.RWMutex
+type UserStore struct {
+	users map[string]passkey.User
+	mu    sync.RWMutex
 }
 
-func NewStorage() *Storage {
-	return &Storage{
-		users:    make(map[string]passkey.User),
-		sessions: make(map[string]webauthn.SessionData),
-		uMu:      sync.RWMutex{},
-		sMu:      sync.RWMutex{},
+func NewUserStore() *UserStore {
+	return &UserStore{
+		users: make(map[string]passkey.User),
+		mu:    sync.RWMutex{},
 	}
 }
 
-// -- User storage methods --
-
-func (s *Storage) Update(user passkey.User) error {
-	s.uMu.Lock()
-	defer s.uMu.Unlock()
+func (s *UserStore) Update(user passkey.User) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	s.users[user.WebAuthnName()] = user
 
 	return nil
 }
 
-func (s *Storage) Get(userID []byte) (passkey.User, error) {
-	s.uMu.RLock()
-	defer s.uMu.RUnlock()
+func (s *UserStore) Get(userID []byte) (passkey.User, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	// TODO: full scan, optimize eventually
 	for _, u := range s.users {
@@ -54,9 +50,9 @@ func (s *Storage) Get(userID []byte) (passkey.User, error) {
 	return nil, fmt.Errorf("user not found")
 }
 
-func (s *Storage) GetByName(username string) (passkey.User, error) {
-	s.uMu.RLock()
-	defer s.uMu.RUnlock()
+func (s *UserStore) GetByName(username string) (passkey.User, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	if u, ok := s.users[username]; ok {
 		return u, nil
@@ -65,9 +61,9 @@ func (s *Storage) GetByName(username string) (passkey.User, error) {
 	return nil, fmt.Errorf("user not found")
 }
 
-func (s *Storage) Create(username string) (passkey.User, error) {
-	s.uMu.Lock()
-	defer s.uMu.Unlock()
+func (s *UserStore) Create(username string) (passkey.User, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	if _, ok := s.users[username]; ok {
 		return nil, fmt.Errorf("user %s already exists", username)
@@ -82,9 +78,9 @@ func (s *Storage) Create(username string) (passkey.User, error) {
 	return u, nil
 }
 
-func (s *Storage) GetOrCreateUser(userName string) passkey.User {
-	s.uMu.Lock()
-	defer s.uMu.Unlock()
+func (s *UserStore) GetOrCreateUser(userName string) passkey.User {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	if user, ok := s.users[userName]; ok {
 		return user
@@ -103,7 +99,19 @@ func (s *Storage) GetOrCreateUser(userName string) passkey.User {
 
 // -- Session storage methods --
 
-func (s *Storage) GenSessionID() (string, error) {
+type SessionStore struct {
+	sessions map[string]webauthn.SessionData
+	mu       sync.RWMutex
+}
+
+func NewSessionStore() *SessionStore {
+	return &SessionStore{
+		sessions: make(map[string]webauthn.SessionData),
+		mu:       sync.RWMutex{},
+	}
+}
+
+func genSessionID() (string, error) {
 	b := make([]byte, 32)
 	_, err := rand.Read(b)
 	if err != nil {
@@ -113,9 +121,24 @@ func (s *Storage) GenSessionID() (string, error) {
 	return base64.URLEncoding.EncodeToString(b), nil
 }
 
-func (s *Storage) GetSession(token string) (*webauthn.SessionData, bool) {
-	s.sMu.RLock()
-	defer s.sMu.RUnlock()
+func (s *SessionStore) Create(data webauthn.SessionData) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	sID, err := genSessionID()
+	if err != nil {
+		return "", nil
+	}
+
+	// FIXME: there could be collisions, but in prepuce of example we don't care
+	s.sessions[sID] = data
+
+	return sID, nil
+}
+
+func (s *SessionStore) Get(token string) (*webauthn.SessionData, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	if val, ok := s.sessions[token]; !ok {
 		return nil, false
@@ -124,16 +147,9 @@ func (s *Storage) GetSession(token string) (*webauthn.SessionData, bool) {
 	}
 }
 
-func (s *Storage) SaveSession(token string, data *webauthn.SessionData) {
-	s.sMu.Lock()
-	defer s.sMu.Unlock()
-
-	s.sessions[token] = *data
-}
-
-func (s *Storage) DeleteSession(token string) {
-	s.sMu.Lock()
-	defer s.sMu.Unlock()
+func (s *SessionStore) Delete(token string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	delete(s.sessions, token)
 }

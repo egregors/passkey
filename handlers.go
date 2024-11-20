@@ -48,19 +48,16 @@ func (p *Passkey) beginRegistration(w http.ResponseWriter, r *http.Request) {
 	}
 	p.log.Debugf("got options: %v", options)
 
-	// Make a session key and store the sessionData values
-	p.log.Debugf("generating session id")
-	t, err := p.genSessionID()
+	p.log.Debugf("try to save session")
+	t, err := p.sessionStore.Create(*session)
 	if err != nil {
-		err = fmt.Errorf("can't generate session id: %w", err)
+		err = fmt.Errorf("can't save session: %w", err)
 
 		return
 	}
+	p.log.Debugf("session saved: %s", t)
 
-	p.log.Debugf("generated session id: %s", t)
-	p.log.Debugf("saving session data and setting cookie")
-
-	p.sessionStore.SaveSession(t, session)
+	p.log.Debugf("setting cookie")
 	p.setSessionCookie(w, t)
 
 	// return the options generated with the session key
@@ -96,7 +93,7 @@ func (p *Passkey) finishRegistration(w http.ResponseWriter, r *http.Request) {
 
 	// Get the session data stored from the function above
 	p.log.Debugf("try to get session data")
-	session, ok := p.sessionStore.GetSession(sid.Value)
+	session, ok := p.sessionStore.Get(sid.Value)
 	if !ok {
 		err = fmt.Errorf("can't get session data")
 
@@ -134,7 +131,7 @@ func (p *Passkey) finishRegistration(w http.ResponseWriter, r *http.Request) {
 	p.log.Debugf("user saved")
 
 	p.log.Debugf("deleting session data")
-	p.sessionStore.DeleteSession(sid.Value)
+	p.sessionStore.Delete(sid.Value)
 
 	JSONResponse(w, "Registration Success", http.StatusOK)
 
@@ -181,19 +178,16 @@ func (p *Passkey) beginLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	p.log.Debugf("got options: %v", options)
 
-	// Make a session key and store the sessionData values
-	p.log.Debugf("generating session id")
-	t, err := p.genSessionID()
+	p.log.Debugf("try to save session")
+	t, err := p.sessionStore.Create(*session)
 	if err != nil {
-		err = fmt.Errorf("can't generate session id: %w", err)
+		err = fmt.Errorf("can't save session: %w", err)
 
 		return
 	}
+	p.log.Debugf("session saved: %s", t)
 
-	p.log.Debugf("generated session id: %s", t)
-	p.log.Debugf("saving session data and setting cookie")
-
-	p.sessionStore.SaveSession(t, session)
+	p.log.Debugf("setting cookie")
 	p.setSessionCookie(w, t)
 
 	// return the options generated with the session key
@@ -227,7 +221,7 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 
 	// Get the session data stored from the function above
 	p.log.Debugf("try to get session data")
-	session, ok := p.sessionStore.GetSession(sid.Value)
+	session, ok := p.sessionStore.Get(sid.Value)
 	if !ok {
 		err = fmt.Errorf("can't get session data")
 
@@ -273,25 +267,23 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 
 	// Delete the login session data
 	p.log.Debugf("deleting session data and cookie")
-	p.sessionStore.DeleteSession(sid.Value)
+	p.sessionStore.Delete(sid.Value)
 	p.deleteSessionCookie(w)
 
-	// Add the new session cookie
-	p.log.Debugf("generating new session id and setting cookie")
-	t, err := p.genSessionID()
-	if err != nil {
-		err = fmt.Errorf("can't generate session id: %w", err)
-
-		return
-	}
-	p.log.Debugf("generated session id: %s", t)
-
-	p.log.Debugf("saving session data and setting cookie")
 	// FIXME: we reuse the webauthn.SessionData struct, but it's not a good idea probably
-	p.sessionStore.SaveSession(t, &webauthn.SessionData{
+	p.log.Debugf("try to save session")
+	t, err := p.sessionStore.Create(webauthn.SessionData{
 		UserID:  session.UserID,
 		Expires: time.Now().Add(p.cfg.SessionMaxAge),
 	})
+	if err != nil {
+		err = fmt.Errorf("can't save session: %w", err)
+
+		return
+	}
+	p.log.Debugf("session saved: %s", t)
+
+	p.log.Debugf("setting cookie")
 	p.setSessionCookie(w, t)
 
 	JSONResponse(w, "Login Success", http.StatusOK)

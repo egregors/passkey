@@ -23,7 +23,7 @@ func TestPasskey_Logout(t *testing.T) {
 				mock := NewMockSessionStore(t)
 
 				mock.EXPECT().
-					DeleteSession("hello-darkness-my-old-friend").
+					Delete("hello-darkness-my-old-friend").
 					Times(1)
 
 				return mock

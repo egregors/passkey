@@ -22,16 +22,17 @@ type User interface {
 type UserStore interface {
 	Create(username string) (User, error)
 	Update(User) error
+
 	Get(userID []byte) (User, error)
 	GetByName(username string) (User, error)
 }
 
 // SessionStore is a storage for session data
-// FIXME: I shouldn't use this session for post auth session. It's just for the registration process
 type SessionStore interface {
-	GetSession(token string) (*webauthn.SessionData, bool)
-	SaveSession(token string, data *webauthn.SessionData)
-	DeleteSession(token string)
+	Create(data webauthn.SessionData) (string, error)
+	Delete(token string)
+
+	Get(token string) (*webauthn.SessionData, bool)
 }
 
 // TODO: add post auth session store

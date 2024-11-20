@@ -30,7 +30,8 @@ func main() {
 
 	origin := fmt.Sprintf("%s://%s%s%s", proto, sub, host, originPort)
 
-	storage := NewStorage()
+	userStore := NewUserStore()
+	sessionStore := NewSessionStore()
 	l := log.NewLogger()
 
 	pkey, err := passkey.New(
@@ -40,8 +41,8 @@ func main() {
 				RPID:          host,              // Generally the FQDN for your site
 				RPOrigins:     []string{origin},  // The origin URLs allowed for WebAuthn
 			},
-			UserStore:     storage,
-			SessionStore:  storage,
+			UserStore:     userStore,
+			SessionStore:  sessionStore,
 			SessionMaxAge: 24 * time.Hour,
 		},
 		passkey.WithLogger(l),

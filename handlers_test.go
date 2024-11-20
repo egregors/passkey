@@ -116,7 +116,7 @@ func TestPasskey_beginRegistration(t *testing.T) {
 			sessionStore: func() SessionStore {
 				store := NewMockSessionStore(t)
 				store.EXPECT().
-					SaveSession("session-id", mock.AnythingOfType("*webauthn.SessionData")).
+					Create(mock.AnythingOfType("*webauthn.SessionData")).
 					Times(1)
 
 				return store

@@ -20,45 +20,101 @@ func (_m *MockSessionStore) EXPECT() *MockSessionStore_Expecter {
 	return &MockSessionStore_Expecter{mock: &_m.Mock}
 }
 
-// DeleteSession provides a mock function with given fields: token
-func (_m *MockSessionStore) DeleteSession(token string) {
-	_m.Called(token)
+// Create provides a mock function with given fields: data
+func (_m *MockSessionStore) Create(data webauthn.SessionData) (string, error) {
+	ret := _m.Called(data)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Create")
+	}
+
+	var r0 string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(webauthn.SessionData) (string, error)); ok {
+		return rf(data)
+	}
+	if rf, ok := ret.Get(0).(func(webauthn.SessionData) string); ok {
+		r0 = rf(data)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+
+	if rf, ok := ret.Get(1).(func(webauthn.SessionData) error); ok {
+		r1 = rf(data)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
-// MockSessionStore_DeleteSession_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteSession'
-type MockSessionStore_DeleteSession_Call struct {
+// MockSessionStore_Create_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Create'
+type MockSessionStore_Create_Call struct {
 	*mock.Call
 }
 
-// DeleteSession is a helper method to define mock.On call
-//   - token string
-func (_e *MockSessionStore_Expecter) DeleteSession(token interface{}) *MockSessionStore_DeleteSession_Call {
-	return &MockSessionStore_DeleteSession_Call{Call: _e.mock.On("DeleteSession", token)}
+// Create is a helper method to define mock.On call
+//   - data webauthn.SessionData
+func (_e *MockSessionStore_Expecter) Create(data interface{}) *MockSessionStore_Create_Call {
+	return &MockSessionStore_Create_Call{Call: _e.mock.On("Create", data)}
 }
 
-func (_c *MockSessionStore_DeleteSession_Call) Run(run func(token string)) *MockSessionStore_DeleteSession_Call {
+func (_c *MockSessionStore_Create_Call) Run(run func(data webauthn.SessionData)) *MockSessionStore_Create_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(webauthn.SessionData))
+	})
+	return _c
+}
+
+func (_c *MockSessionStore_Create_Call) Return(_a0 string, _a1 error) *MockSessionStore_Create_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockSessionStore_Create_Call) RunAndReturn(run func(webauthn.SessionData) (string, error)) *MockSessionStore_Create_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Delete provides a mock function with given fields: token
+func (_m *MockSessionStore) Delete(token string) {
+	_m.Called(token)
+}
+
+// MockSessionStore_Delete_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Delete'
+type MockSessionStore_Delete_Call struct {
+	*mock.Call
+}
+
+// Delete is a helper method to define mock.On call
+//   - token string
+func (_e *MockSessionStore_Expecter) Delete(token interface{}) *MockSessionStore_Delete_Call {
+	return &MockSessionStore_Delete_Call{Call: _e.mock.On("Delete", token)}
+}
+
+func (_c *MockSessionStore_Delete_Call) Run(run func(token string)) *MockSessionStore_Delete_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(string))
 	})
 	return _c
 }
 
-func (_c *MockSessionStore_DeleteSession_Call) Return() *MockSessionStore_DeleteSession_Call {
+func (_c *MockSessionStore_Delete_Call) Return() *MockSessionStore_Delete_Call {
 	_c.Call.Return()
 	return _c
 }
 
-func (_c *MockSessionStore_DeleteSession_Call) RunAndReturn(run func(string)) *MockSessionStore_DeleteSession_Call {
+func (_c *MockSessionStore_Delete_Call) RunAndReturn(run func(string)) *MockSessionStore_Delete_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// GetSession provides a mock function with given fields: token
-func (_m *MockSessionStore) GetSession(token string) (*webauthn.SessionData, bool) {
+// Get provides a mock function with given fields: token
+func (_m *MockSessionStore) Get(token string) (*webauthn.SessionData, bool) {
 	ret := _m.Called(token)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetSession")
+		panic("no return value specified for Get")
 	}
 
 	var r0 *webauthn.SessionData
@@ -83,64 +139,30 @@ func (_m *MockSessionStore) GetSession(token string) (*webauthn.SessionData, boo
 	return r0, r1
 }
 
-// MockSessionStore_GetSession_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetSession'
-type MockSessionStore_GetSession_Call struct {
+// MockSessionStore_Get_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Get'
+type MockSessionStore_Get_Call struct {
 	*mock.Call
 }
 
-// GetSession is a helper method to define mock.On call
+// Get is a helper method to define mock.On call
 //   - token string
-func (_e *MockSessionStore_Expecter) GetSession(token interface{}) *MockSessionStore_GetSession_Call {
-	return &MockSessionStore_GetSession_Call{Call: _e.mock.On("GetSession", token)}
+func (_e *MockSessionStore_Expecter) Get(token interface{}) *MockSessionStore_Get_Call {
+	return &MockSessionStore_Get_Call{Call: _e.mock.On("Get", token)}
 }
 
-func (_c *MockSessionStore_GetSession_Call) Run(run func(token string)) *MockSessionStore_GetSession_Call {
+func (_c *MockSessionStore_Get_Call) Run(run func(token string)) *MockSessionStore_Get_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(string))
 	})
 	return _c
 }
 
-func (_c *MockSessionStore_GetSession_Call) Return(_a0 *webauthn.SessionData, _a1 bool) *MockSessionStore_GetSession_Call {
+func (_c *MockSessionStore_Get_Call) Return(_a0 *webauthn.SessionData, _a1 bool) *MockSessionStore_Get_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockSessionStore_GetSession_Call) RunAndReturn(run func(string) (*webauthn.SessionData, bool)) *MockSessionStore_GetSession_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// SaveSession provides a mock function with given fields: token, data
-func (_m *MockSessionStore) SaveSession(token string, data *webauthn.SessionData) {
-	_m.Called(token, data)
-}
-
-// MockSessionStore_SaveSession_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SaveSession'
-type MockSessionStore_SaveSession_Call struct {
-	*mock.Call
-}
-
-// SaveSession is a helper method to define mock.On call
-//   - token string
-//   - data *webauthn.SessionData
-func (_e *MockSessionStore_Expecter) SaveSession(token interface{}, data interface{}) *MockSessionStore_SaveSession_Call {
-	return &MockSessionStore_SaveSession_Call{Call: _e.mock.On("SaveSession", token, data)}
-}
-
-func (_c *MockSessionStore_SaveSession_Call) Run(run func(token string, data *webauthn.SessionData)) *MockSessionStore_SaveSession_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string), args[1].(*webauthn.SessionData))
-	})
-	return _c
-}
-
-func (_c *MockSessionStore_SaveSession_Call) Return() *MockSessionStore_SaveSession_Call {
-	_c.Call.Return()
-	return _c
-}
-
-func (_c *MockSessionStore_SaveSession_Call) RunAndReturn(run func(string, *webauthn.SessionData)) *MockSessionStore_SaveSession_Call {
+func (_c *MockSessionStore_Get_Call) RunAndReturn(run func(string) (*webauthn.SessionData, bool)) *MockSessionStore_Get_Call {
 	_c.Call.Return(run)
 	return _c
 }
