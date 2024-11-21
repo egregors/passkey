@@ -11,6 +11,6 @@ func (p *Passkey) Logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p.sessionStore.Delete(sid.Value)
+	p.authSessionStore.Delete(sid.Value)
 	p.deleteSessionCookie(w)
 }

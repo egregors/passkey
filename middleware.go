@@ -27,7 +27,7 @@ func (p *Passkey) Auth(userIDKey string, onSuccess, onFail http.HandlerFunc) fun
 
 			// FIXME: i shouldn't use registration \ authorization session store here
 			//   it should be a separate store with a mach lighter session object
-			session, ok := p.sessionStore.Get(sid.Value)
+			session, ok := p.userSessionStore.Get(sid.Value)
 			if !ok {
 				exec(onFail, w, r)
 

@@ -20,19 +20,11 @@ func WithInsecureCookie() Option {
 	}
 }
 
-// WithSessionIDGenerator sets the function to generate session ID.
-func WithSessionIDGenerator(genFn func() (string, error)) Option {
-	return func(p *Passkey) {
-		if genFn != nil {
-			p.genSessionID = genFn
-		}
-	}
-}
-
 // WithSessionCookieName sets the name of the session cookie.
 func WithSessionCookieName(name string) Option {
 	return func(p *Passkey) {
 		if name != "" {
+			// TODO: it probably could be a name PREFIX
 			p.cookieSettings.Name = name
 		}
 	}

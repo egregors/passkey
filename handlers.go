@@ -5,12 +5,10 @@ import (
 	"fmt"
 	"net/http"
 	"time"
-
-	"github.com/go-webauthn/webauthn/webauthn"
 )
 
 func (p *Passkey) beginRegistration(w http.ResponseWriter, r *http.Request) {
-	p.log.Infof("begin registration")
+	p.log.Infof(">>> begin registration")
 
 	var err error
 	defer func() {
@@ -37,7 +35,7 @@ func (p *Passkey) beginRegistration(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
-	p.log.Debugf("user created: %v", user)
+	p.log.Debugf("user created: %s", user.WebAuthnName())
 
 	p.log.Debugf("try to get options from webauthn")
 	options, session, err := p.webAuthn.BeginRegistration(user)
@@ -46,10 +44,10 @@ func (p *Passkey) beginRegistration(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
-	p.log.Debugf("got options: %v", options)
+	p.log.Debugf("got options")
 
 	p.log.Debugf("try to save session")
-	t, err := p.sessionStore.Create(*session)
+	t, err := p.authSessionStore.Create(*session)
 	if err != nil {
 		err = fmt.Errorf("can't save session: %w", err)
 
@@ -64,11 +62,11 @@ func (p *Passkey) beginRegistration(w http.ResponseWriter, r *http.Request) {
 	// options.publicKey contain our registration options
 	JSONResponse(w, options, http.StatusOK)
 
-	p.log.Infof("begin registration: done")
+	p.log.Infof("<<< begin registration: done")
 }
 
 func (p *Passkey) finishRegistration(w http.ResponseWriter, r *http.Request) {
-	p.log.Infof("finish registration")
+	p.log.Infof(">>> finish registration")
 
 	var err error
 	defer func() {
@@ -76,7 +74,7 @@ func (p *Passkey) finishRegistration(w http.ResponseWriter, r *http.Request) {
 			p.log.Errorf("%s", err.Error())
 			JSONResponse(w, err.Error(), http.StatusBadRequest)
 			p.log.Debugf("cleaned up session cookie")
-			p.log.Debugf("finish registration: done with error")
+			p.log.Debugf("<<< finish registration: done with error")
 		}
 		p.deleteSessionCookie(w)
 	}()
@@ -93,13 +91,13 @@ func (p *Passkey) finishRegistration(w http.ResponseWriter, r *http.Request) {
 
 	// Get the session data stored from the function above
 	p.log.Debugf("try to get session data")
-	session, ok := p.sessionStore.Get(sid.Value)
+	session, ok := p.authSessionStore.Get(sid.Value)
 	if !ok {
 		err = fmt.Errorf("can't get session data")
 
 		return
 	}
-	p.log.Debugf("got session data: %v", session)
+	p.log.Debugf("got session data")
 
 	p.log.Debugf("try to get user from repo")
 	user, err := p.userStore.Get(session.UserID)
@@ -108,7 +106,7 @@ func (p *Passkey) finishRegistration(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
-	p.log.Debugf("got user: %v", user)
+	p.log.Debugf("got user: %s", user.WebAuthnName())
 
 	p.log.Debugf("try to get credential from webauthn")
 	credential, err := p.webAuthn.FinishRegistration(user, *session, r)
@@ -117,7 +115,7 @@ func (p *Passkey) finishRegistration(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
-	p.log.Debugf("got credential: %v", credential)
+	p.log.Debugf("got credential")
 
 	p.log.Debugf("putting credential to user")
 	user.PutCredential(*credential)
@@ -131,22 +129,22 @@ func (p *Passkey) finishRegistration(w http.ResponseWriter, r *http.Request) {
 	p.log.Debugf("user saved")
 
 	p.log.Debugf("deleting session data")
-	p.sessionStore.Delete(sid.Value)
+	p.authSessionStore.Delete(sid.Value)
 
 	JSONResponse(w, "Registration Success", http.StatusOK)
 
-	p.log.Infof("finish registration: done")
+	p.log.Infof("<<< finish registration: done")
 }
 
 func (p *Passkey) beginLogin(w http.ResponseWriter, r *http.Request) {
-	p.log.Infof("begin login")
+	p.log.Infof(">>> begin login")
 
 	var err error
 	defer func() {
 		if err != nil {
 			p.log.Errorf("%s", err.Error())
 			JSONResponse(w, err.Error(), http.StatusBadRequest)
-			p.log.Debugf("begin login: done with error")
+			p.log.Debugf("<<< begin login: done with error")
 		}
 	}()
 
@@ -166,7 +164,7 @@ func (p *Passkey) beginLogin(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
-	p.log.Debugf("got user: %v", user)
+	p.log.Debugf("got user: %s", user.WebAuthnName())
 
 	p.log.Debugf("try to get options from webauthn")
 	options, session, err := p.webAuthn.BeginLogin(user)
@@ -176,10 +174,10 @@ func (p *Passkey) beginLogin(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
-	p.log.Debugf("got options: %v", options)
+	p.log.Debugf("got options")
 
 	p.log.Debugf("try to save session")
-	t, err := p.sessionStore.Create(*session)
+	t, err := p.authSessionStore.Create(*session)
 	if err != nil {
 		err = fmt.Errorf("can't save session: %w", err)
 
@@ -194,18 +192,18 @@ func (p *Passkey) beginLogin(w http.ResponseWriter, r *http.Request) {
 	// options.publicKey contain our registration options
 	JSONResponse(w, options, http.StatusOK)
 
-	p.log.Infof("begin login: done")
+	p.log.Infof("<<< begin login: done")
 }
 
 func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
-	p.log.Infof("finish login")
+	p.log.Infof(">>> finish login")
 
 	var err error
 	defer func() {
 		if err != nil {
 			p.log.Errorf("%s", err.Error())
 			JSONResponse(w, err.Error(), http.StatusBadRequest)
-			p.log.Debugf("finish login: done with error")
+			p.log.Debugf("<<< finish login: done with error")
 		}
 	}()
 
@@ -221,13 +219,13 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 
 	// Get the session data stored from the function above
 	p.log.Debugf("try to get session data")
-	session, ok := p.sessionStore.Get(sid.Value)
+	session, ok := p.authSessionStore.Get(sid.Value)
 	if !ok {
 		err = fmt.Errorf("can't get session data")
 
 		return
 	}
-	p.log.Debugf("got session data: %v", session)
+	p.log.Debugf("got session data")
 
 	p.log.Debugf("try to get user from repo")
 	user, err := p.userStore.Get(session.UserID)
@@ -236,7 +234,7 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
-	p.log.Debugf("got user: %v", user)
+	p.log.Debugf("got user: %s", user.WebAuthnName())
 
 	p.log.Debugf("try to get credential from webauthn")
 	credential, err := p.webAuthn.FinishLogin(user, *session, r)
@@ -245,7 +243,7 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
-	p.log.Debugf("got credential: %v", credential)
+	p.log.Debugf("got credential")
 
 	// Handle credential.Authenticator.CloneWarning
 	if credential.Authenticator.CloneWarning {
@@ -267,17 +265,16 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 
 	// Delete the login session data
 	p.log.Debugf("deleting session data and cookie")
-	p.sessionStore.Delete(sid.Value)
+	p.authSessionStore.Delete(sid.Value)
 	p.deleteSessionCookie(w)
 
-	// FIXME: we reuse the webauthn.SessionData struct, but it's not a good idea probably
-	p.log.Debugf("try to save session")
-	t, err := p.sessionStore.Create(webauthn.SessionData{
+	p.log.Debugf("try to save user session")
+	t, err := p.userSessionStore.Create(UserSessionData{
 		UserID:  session.UserID,
-		Expires: time.Now().Add(p.cfg.SessionMaxAge),
+		Expires: time.Now().Add(p.cfg.UserSessionMaxAge),
 	})
 	if err != nil {
-		err = fmt.Errorf("can't save session: %w", err)
+		err = fmt.Errorf("can't save user session: %w", err)
 
 		return
 	}
@@ -288,11 +285,13 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 
 	JSONResponse(w, "Login Success", http.StatusOK)
 
-	p.log.Infof("finish login")
+	p.log.Infof("<<< finish login")
 }
 
 // setSessionCookie sets a cookie
 func (p *Passkey) setSessionCookie(w http.ResponseWriter, value string) {
+	// FIXME: now we user maxAge setting from consumer. But we actually need to use it
+	//  only for userSession. Looks like maxAge for authSession we must set strictly
 	http.SetCookie(w, &http.Cookie{
 		Name:     p.cookieSettings.Name,
 		Value:    value,

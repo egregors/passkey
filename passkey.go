@@ -3,7 +3,6 @@ package passkey
 import (
 	"crypto/rand"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -26,8 +25,14 @@ const (
 type Config struct {
 	WebauthnConfig *webauthn.Config
 	UserStore
-	SessionStore
-	SessionMaxAge time.Duration
+	AuthSessionStore  SessionStore[webauthn.SessionData]
+	UserSessionStore  SessionStore[UserSessionData]
+	UserSessionMaxAge time.Duration
+}
+
+type UserSessionData struct {
+	UserID  []byte
+	Expires time.Time
 }
 
 type CookieSettings struct {
@@ -44,9 +49,9 @@ type Passkey struct {
 
 	webAuthn *webauthn.WebAuthn
 
-	userStore    UserStore
-	sessionStore SessionStore
-	genSessionID func() (string, error)
+	userStore        UserStore
+	authSessionStore SessionStore[webauthn.SessionData]
+	userSessionStore SessionStore[UserSessionData]
 
 	mux       *http.ServeMux
 	staticMux *http.ServeMux
@@ -60,8 +65,9 @@ func New(cfg Config, opts ...Option) (*Passkey, error) {
 	p := &Passkey{
 		cfg: cfg,
 
-		userStore:    cfg.UserStore,
-		sessionStore: cfg.SessionStore,
+		userStore:        cfg.UserStore,
+		authSessionStore: cfg.AuthSessionStore,
+		userSessionStore: cfg.UserSessionStore,
 
 		mux:       http.NewServeMux(),
 		staticMux: http.NewServeMux(),
@@ -79,12 +85,33 @@ func New(cfg Config, opts ...Option) (*Passkey, error) {
 
 	err := p.setupWebAuthn()
 	if err != nil {
-		return nil, errors.New("can't create webauthn: " + err.Error())
+		return nil, fmt.Errorf("can't create webauthn: %w", err)
 	}
 
+	if err := p.must(); err != nil {
+		return nil, fmt.Errorf("invalid cfg: %w", err)
+	}
 	p.raiseWarnings()
 
 	return p, nil
+}
+
+func (p *Passkey) must() error {
+	return mustNotNil(map[string]any{
+		"userStore":        p.userStore,
+		"authSessionStore": p.authSessionStore,
+		"userSessionStore": p.userSessionStore,
+	})
+}
+
+func mustNotNil(nillable map[string]any) error {
+	for k, v := range nillable {
+		if v == nil {
+			return fmt.Errorf("%s can't be nil", k)
+		}
+	}
+
+	return nil
 }
 
 func (p *Passkey) setupOptions(opts []Option) {
@@ -99,7 +126,6 @@ func setupDefaultOptions(p *Passkey) {
 		WithLogger(logger.NewLogger()),
 		WithSessionCookieName(defaultSessionCookieName),
 		WithCookieMaxAge(defaultCookieMaxAge),
-		WithSessionIDGenerator(defaultSessionIDGenerator),
 	}
 
 	for _, opt := range defaultOpts {
@@ -108,7 +134,7 @@ func setupDefaultOptions(p *Passkey) {
 }
 
 func (p *Passkey) raiseWarnings() {
-	if p.cfg.SessionMaxAge == 0 {
+	if p.cfg.UserSessionMaxAge == 0 {
 		p.log.Warnf("session max age is not set")
 	}
 

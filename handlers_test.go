@@ -179,7 +179,7 @@ func TestPasskey_beginRegistration(t *testing.T) {
 		//
 		//		return store
 		//	},
-		//	sessionStore: func() SessionStore {
+		//	authSessionStore: func() AuthSessionStore {
 		//		return NewMockSessionStore(t)
 		//	},
 		//	wantStatus: http.StatusBadRequest,
@@ -218,9 +218,9 @@ func TestPasskey_beginRegistration(t *testing.T) {
 						RPID:          "localhost",
 						RPOrigins:     []string{"localhost"},
 					},
-					UserStore:     tt.repo(),
-					SessionStore:  tt.sessionStore(),
-					SessionMaxAge: 69 * time.Second,
+					UserStore:         tt.repo(),
+					AuthSessionStore:  tt.sessionStore(),
+					UserSessionMaxAge: 69 * time.Second,
 				},
 			)
 			assert.NoError(t, err)

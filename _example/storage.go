@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/google/uuid"
 
 	"github.com/egregors/passkey"
@@ -99,14 +98,14 @@ func (s *UserStore) GetOrCreateUser(userName string) passkey.User {
 
 // -- Session storage methods --
 
-type SessionStore struct {
-	sessions map[string]webauthn.SessionData
+type SessionStore[T any] struct {
+	sessions map[string]T
 	mu       sync.RWMutex
 }
 
-func NewSessionStore() *SessionStore {
-	return &SessionStore{
-		sessions: make(map[string]webauthn.SessionData),
+func NewSessionStore[T any]() *SessionStore[T] {
+	return &SessionStore[T]{
+		sessions: make(map[string]T),
 		mu:       sync.RWMutex{},
 	}
 }
@@ -121,7 +120,7 @@ func genSessionID() (string, error) {
 	return base64.URLEncoding.EncodeToString(b), nil
 }
 
-func (s *SessionStore) Create(data webauthn.SessionData) (string, error) {
+func (s *SessionStore[T]) Create(data T) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -136,7 +135,7 @@ func (s *SessionStore) Create(data webauthn.SessionData) (string, error) {
 	return sID, nil
 }
 
-func (s *SessionStore) Get(token string) (*webauthn.SessionData, bool) {
+func (s *SessionStore[T]) Get(token string) (*T, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -147,7 +146,7 @@ func (s *SessionStore) Get(token string) (*webauthn.SessionData, bool) {
 	}
 }
 
-func (s *SessionStore) Delete(token string) {
+func (s *SessionStore[T]) Delete(token string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

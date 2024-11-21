@@ -178,8 +178,8 @@ func TestAuth(t *testing.T) {
 					RPID:          "localhost",
 					RPOrigins:     []string{"localhost"},
 				},
-				SessionStore:  sessionStore,
-				SessionMaxAge: 69 * time.Second,
+				AuthSessionStore:  sessionStore,
+				UserSessionMaxAge: 69 * time.Second,
 			},
 		)
 		assert.NoError(t, err)

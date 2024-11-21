@@ -73,9 +73,9 @@ func TestPasskey_Logout(t *testing.T) {
 						RPID:          "localhost",
 						RPOrigins:     []string{"localhost"},
 					},
-					UserStore:     nil,
-					SessionStore:  tt.sessionStore(),
-					SessionMaxAge: 69,
+					UserStore:         nil,
+					AuthSessionStore:  tt.sessionStore(),
+					UserSessionMaxAge: 69,
 				},
 			)
 			assert.NoError(t, err)
