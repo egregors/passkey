@@ -37,7 +37,7 @@ func TestPasskey_Logout(t *testing.T) {
 			r: func() *http.Request {
 				r := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 				r.AddCookie(&http.Cookie{
-					Name:  defaultSessionCookieName,
+					Name:  defaultAuthSessionName,
 					Value: "hello-darkness-my-old-friend",
 				})
 

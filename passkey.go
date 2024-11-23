@@ -1,8 +1,6 @@
 package passkey
 
 import (
-	"crypto/rand"
-	"encoding/base64"
 	"fmt"
 	"net/http"
 	"time"
@@ -18,8 +16,11 @@ const (
 	pathLoginBegin     = "/passkey/loginBegin"
 	pathLoginFinish    = "/passkey/loginFinish"
 
-	defaultSessionCookieName = "sid"
-	defaultCookieMaxAge      = 60 * time.Minute
+	defaultSessionNamePrefix = "pk"
+	defaultAuthSessionName   = "asid"
+	defaultUserSessionName   = "usid"
+	defaultAuthSessionMaxAge = 5 * time.Minute
+	defaultUserSessionMaxAge = 60 * time.Minute
 )
 
 type Config struct {
@@ -36,12 +37,14 @@ type UserSessionData struct {
 }
 
 type CookieSettings struct {
-	Name     string
-	Path     string
-	MaxAge   time.Duration
-	Secure   bool
-	HttpOnly bool //nolint:stylecheck // naming from http.Cookie
-	SameSite http.SameSite
+	Path              string
+	authSessionName   string
+	userSessionName   string
+	authSessionMaxAge time.Duration
+	userSessionMaxAge time.Duration
+	Secure            bool
+	HttpOnly          bool //nolint:stylecheck // naming from http.Cookie
+	SameSite          http.SameSite
 }
 
 type Passkey struct {
@@ -71,15 +74,9 @@ func New(cfg Config, opts ...Option) (*Passkey, error) {
 
 		mux:       http.NewServeMux(),
 		staticMux: http.NewServeMux(),
-
-		cookieSettings: CookieSettings{
-			Path:     "/",
-			Secure:   true,
-			HttpOnly: true,
-			SameSite: http.SameSiteLaxMode,
-		},
 	}
 
+	p.setupCookieSettings()
 	p.setupOptions(opts)
 	p.setupRoutes()
 
@@ -124,8 +121,8 @@ func (p *Passkey) setupOptions(opts []Option) {
 func setupDefaultOptions(p *Passkey) {
 	defaultOpts := []Option{
 		WithLogger(logger.NewLogger()),
-		WithSessionCookieName(defaultSessionCookieName),
-		WithCookieMaxAge(defaultCookieMaxAge),
+		WithSessionCookieNamePrefix(defaultSessionNamePrefix),
+		WithUserSessionMaxAge(defaultUserSessionMaxAge),
 	}
 
 	for _, opt := range defaultOpts {
@@ -170,12 +167,15 @@ func (p *Passkey) MountRoutes(mux *http.ServeMux, path string) {
 	mux.Handle(path, http.StripPrefix(path[:len(path)-1], p.mux))
 }
 
-func defaultSessionIDGenerator() (string, error) {
-	b := make([]byte, 32)
-	_, err := rand.Read(b)
-	if err != nil {
-		return "", err
+func (p *Passkey) setupCookieSettings() {
+	p.cookieSettings = CookieSettings{
+		Path:              "/",
+		authSessionName:   defaultAuthSessionName,
+		userSessionName:   defaultUserSessionName,
+		authSessionMaxAge: defaultAuthSessionMaxAge,
+		userSessionMaxAge: defaultUserSessionMaxAge,
+		Secure:            true,
+		HttpOnly:          true,
+		SameSite:          http.SameSiteLaxMode,
 	}
-
-	return base64.URLEncoding.EncodeToString(b), nil
 }

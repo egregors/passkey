@@ -45,7 +45,7 @@ func main() {
 			UserSessionMaxAge: 24 * time.Hour,
 		},
 		passkey.WithLogger(l),
-		passkey.WithCookieMaxAge(60*time.Minute),
+		passkey.WithUserSessionMaxAge(60*time.Minute),
 		passkey.WithInsecureCookie(), // In order to support Safari on localhost. Do not use in production.
 	)
 	if err != nil {

@@ -18,15 +18,13 @@ import (
 func (p *Passkey) Auth(userIDKey string, onSuccess, onFail http.HandlerFunc) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			sid, err := r.Cookie(p.cookieSettings.Name)
+			sid, err := r.Cookie(p.cookieSettings.userSessionName)
 			if err != nil {
 				exec(onFail, w, r)
 
 				return
 			}
 
-			// FIXME: i shouldn't use registration \ authorization session store here
-			//   it should be a separate store with a mach lighter session object
 			session, ok := p.userSessionStore.Get(sid.Value)
 			if !ok {
 				exec(onFail, w, r)
