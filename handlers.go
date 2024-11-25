@@ -99,7 +99,7 @@ func (p *Passkey) finishRegistration(w http.ResponseWriter, r *http.Request) {
 	}
 	p.log.Debugf("got session data")
 
-	p.log.Debugf("try to get user from repo")
+	p.log.Debugf("try to get user from user store")
 	user, err := p.userStore.Get(session.UserID)
 	if err != nil {
 		err = fmt.Errorf("can't get user: %w", err)
@@ -271,7 +271,7 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 	p.log.Debugf("try to save user session")
 	t, err := p.userSessionStore.Create(UserSessionData{
 		UserID:  session.UserID,
-		Expires: time.Now().Add(p.cfg.UserSessionMaxAge),
+		Expires: time.Now().Add(p.cookieSettings.userSessionMaxAge),
 	})
 	if err != nil {
 		err = fmt.Errorf("can't save user session: %w", err)

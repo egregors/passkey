@@ -24,12 +24,18 @@ func WithInsecureCookie() Option {
 	}
 }
 
-// WithSessionCookieNamePrefix sets the prefix for names of the session cookies.
+// WithSessionCookieNamePrefix sets custom prefix for names of the session cookies instead of default.
 func WithSessionCookieNamePrefix(prefix string) Option {
 	return func(p *Passkey) {
 		if prefix != "" {
-			p.cookieSettings.authSessionName = camelCaseConcat(prefix, p.cookieSettings.authSessionName)
-			p.cookieSettings.userSessionName = camelCaseConcat(prefix, p.cookieSettings.userSessionName)
+			p.cookieSettings.authSessionName = camelCaseConcat(
+				prefix,
+				strings.TrimPrefix(p.cookieSettings.authSessionName, defaultSessionNamePrefix),
+			)
+			p.cookieSettings.userSessionName = camelCaseConcat(
+				prefix,
+				strings.TrimPrefix(p.cookieSettings.userSessionName, defaultSessionNamePrefix),
+			)
 		}
 	}
 }
@@ -51,11 +57,22 @@ func camelCaseConcat(ws ...string) string {
 		return ws[0]
 	}
 
+	invalidChars := []string{" ", "\t", "\n", "\r"}
+
 	sb := strings.Builder{}
 	sb.WriteString(strings.ToLower(ws[0]))
 
 	for i := 1; i < len(ws); i++ {
 		w := ws[i]
+
+		for _, ch := range invalidChars {
+			w = strings.ReplaceAll(w, ch, "")
+		}
+
+		if w == "" {
+			continue
+		}
+
 		sb.WriteString(
 			fmt.Sprintf(
 				"%s%s",

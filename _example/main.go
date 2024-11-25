@@ -39,10 +39,9 @@ func main() {
 				RPID:          host,              // Generally the FQDN for your site
 				RPOrigins:     []string{origin},  // The origin URLs allowed for WebAuthn
 			},
-			UserStore:         NewUserStore(),
-			AuthSessionStore:  NewSessionStore[webauthn.SessionData](),
-			UserSessionStore:  NewSessionStore[passkey.UserSessionData](),
-			UserSessionMaxAge: 24 * time.Hour,
+			UserStore:        NewUserStore(),
+			AuthSessionStore: NewSessionStore[webauthn.SessionData](),
+			UserSessionStore: NewSessionStore[passkey.UserSessionData](),
 		},
 		passkey.WithLogger(l),
 		passkey.WithUserSessionMaxAge(60*time.Minute),
@@ -88,7 +87,7 @@ func main() {
 func privateHandler() func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// get the userID from the request context
-		userID, ok := passkey.UserFromContext(r.Context(), userKey)
+		userID, ok := passkey.UserIDFromCtx(r.Context(), userKey)
 		if !ok {
 			http.Error(w, "No user found", http.StatusUnauthorized)
 
@@ -99,7 +98,7 @@ func privateHandler() func(w http.ResponseWriter, r *http.Request) {
 		pageData := struct {
 			UserID string
 		}{
-			UserID: userID,
+			UserID: string(userID),
 		}
 
 		tmpl, err := template.ParseFS(webFiles, "web/private.html")

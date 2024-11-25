@@ -8,17 +8,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-
 	"github.com/go-webauthn/webauthn/webauthn"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestAuth(t *testing.T) {
 	type args struct {
-		sessionStore func() SessionStore
-		onSuccess    http.HandlerFunc
-		onFail       http.HandlerFunc
-		req          http.Request
+		userSessionStore func() SessionStore[UserSessionData]
+		onSuccess        http.HandlerFunc
+		onFail           http.HandlerFunc
+		req              func() *http.Request
 	}
 	tests := []struct {
 		name            string
@@ -29,11 +28,12 @@ func TestAuth(t *testing.T) {
 		{
 			name: "200: session is valid",
 			args: args{
-				sessionStore: func() SessionStore {
-					store := NewMockSessionStore(t)
+				userSessionStore: func() SessionStore[UserSessionData] {
+					store := NewMockSessionStore[UserSessionData](t)
 					store.EXPECT().
 						Get("valid").
-						Return(&webauthn.SessionData{
+						Return(&UserSessionData{
+							UserID:  []byte("42"),
 							Expires: time.Now().Add(time.Hour),
 						}, true).
 						Times(1)
@@ -42,10 +42,14 @@ func TestAuth(t *testing.T) {
 				},
 				onSuccess: nil,
 				onFail:    Unauthorized,
-				req: http.Request{
-					Header: http.Header{
-						"Cookie": []string{"sid=valid"},
-					},
+				req: func() *http.Request {
+					req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+					req.AddCookie(&http.Cookie{
+						Name:  camelCaseConcat(defaultSessionNamePrefix, defaultUserSessionName),
+						Value: "valid",
+					})
+
+					return req
 				},
 			},
 			wantStatus: http.StatusOK,
@@ -53,11 +57,12 @@ func TestAuth(t *testing.T) {
 		{
 			name: "200: session is valid and onSuccess handler is called",
 			args: args{
-				sessionStore: func() SessionStore {
-					store := NewMockSessionStore(t)
+				userSessionStore: func() SessionStore[UserSessionData] {
+					store := NewMockSessionStore[UserSessionData](t)
 					store.EXPECT().
 						Get("valid").
-						Return(&webauthn.SessionData{
+						Return(&UserSessionData{
+							UserID:  []byte("42"),
 							Expires: time.Now().Add(time.Hour),
 						}, true).
 						Times(1)
@@ -69,10 +74,14 @@ func TestAuth(t *testing.T) {
 					r.Header.Add("Cat", "Berik")
 				},
 				onFail: nil,
-				req: http.Request{
-					Header: http.Header{
-						"Cookie": []string{"sid=valid"},
-					},
+				req: func() *http.Request {
+					req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+					req.AddCookie(&http.Cookie{
+						Name:  camelCaseConcat(defaultSessionNamePrefix, defaultUserSessionName),
+						Value: "valid",
+					})
+
+					return req
 				},
 			},
 			wantStatus: http.StatusOK,
@@ -81,10 +90,10 @@ func TestAuth(t *testing.T) {
 			},
 		},
 		{
-			name: "401: redirect to target URL",
+			name: "401: missing session + redirect to target URL",
 			args: args{
-				sessionStore: func() SessionStore {
-					store := NewMockSessionStore(t)
+				userSessionStore: func() SessionStore[UserSessionData] {
+					store := NewMockSessionStore[UserSessionData](t)
 					store.EXPECT().
 						Get("missing").
 						Return(nil, false).
@@ -96,11 +105,14 @@ func TestAuth(t *testing.T) {
 				onFail: RedirectUnauthorized(url.URL{
 					Path: "/login",
 				}),
-				req: http.Request{
-					Header: http.Header{
-						"Cookie": []string{"sid=missing"},
-					},
-					URL: &url.URL{Path: "/"},
+				req: func() *http.Request {
+					req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+					req.AddCookie(&http.Cookie{
+						Name:  camelCaseConcat(defaultSessionNamePrefix, defaultUserSessionName),
+						Value: "missing",
+					})
+
+					return req
 				},
 			},
 			wantStatus: http.StatusSeeOther,
@@ -111,13 +123,15 @@ func TestAuth(t *testing.T) {
 		{
 			name: "401: missing session cookie",
 			args: args{
-				sessionStore: func() SessionStore {
-					return NewMockSessionStore(t)
+				userSessionStore: func() SessionStore[UserSessionData] {
+					return NewMockSessionStore[UserSessionData](t)
 				},
 				onSuccess: nil,
 				onFail:    Unauthorized,
-				req: http.Request{
-					Header: http.Header{},
+				req: func() *http.Request {
+					req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+
+					return req
 				},
 			},
 			wantStatus: http.StatusUnauthorized,
@@ -125,8 +139,8 @@ func TestAuth(t *testing.T) {
 		{
 			name: "401: missing session",
 			args: args{
-				sessionStore: func() SessionStore {
-					store := NewMockSessionStore(t)
+				userSessionStore: func() SessionStore[UserSessionData] {
+					store := NewMockSessionStore[UserSessionData](t)
 					store.EXPECT().
 						Get("missing").
 						Return(nil, false).
@@ -136,10 +150,14 @@ func TestAuth(t *testing.T) {
 				},
 				onSuccess: nil,
 				onFail:    Unauthorized,
-				req: http.Request{
-					Header: http.Header{
-						"Cookie": []string{"sid=missing"},
-					},
+				req: func() *http.Request {
+					req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+					req.AddCookie(&http.Cookie{
+						Name:  camelCaseConcat(defaultSessionNamePrefix, defaultUserSessionName),
+						Value: "missing",
+					})
+
+					return req
 				},
 			},
 			wantStatus: http.StatusUnauthorized,
@@ -147,11 +165,12 @@ func TestAuth(t *testing.T) {
 		{
 			name: "401: session expired",
 			args: args{
-				sessionStore: func() SessionStore {
-					store := NewMockSessionStore(t)
+				userSessionStore: func() SessionStore[UserSessionData] {
+					store := NewMockSessionStore[UserSessionData](t)
 					store.EXPECT().
 						Get("expired").
-						Return(&webauthn.SessionData{
+						Return(&UserSessionData{
+							UserID:  []byte("42"),
 							Expires: time.Now().Add(-time.Hour),
 						}, true).
 						Times(1)
@@ -160,17 +179,20 @@ func TestAuth(t *testing.T) {
 				},
 				onSuccess: nil,
 				onFail:    Unauthorized,
-				req: http.Request{
-					Header: http.Header{
-						"Cookie": []string{"sid=expired"},
-					},
+				req: func() *http.Request {
+					req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+					req.AddCookie(&http.Cookie{
+						Name:  camelCaseConcat(defaultSessionNamePrefix, defaultUserSessionName),
+						Value: "expired",
+					})
+
+					return req
 				},
 			},
 			wantStatus: http.StatusUnauthorized,
 		},
 	}
 	for _, tt := range tests {
-		sessionStore := tt.args.sessionStore()
 		p, err := New(
 			Config{
 				WebauthnConfig: &webauthn.Config{
@@ -178,8 +200,9 @@ func TestAuth(t *testing.T) {
 					RPID:          "localhost",
 					RPOrigins:     []string{"localhost"},
 				},
-				AuthSessionStore:  sessionStore,
-				UserSessionMaxAge: 69 * time.Second,
+				UserStore:        NewMockUserStore(t),
+				AuthSessionStore: NewMockSessionStore[webauthn.SessionData](t),
+				UserSessionStore: tt.args.userSessionStore(),
 			},
 		)
 		assert.NoError(t, err)
@@ -191,15 +214,17 @@ func TestAuth(t *testing.T) {
 			)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusOK)
 			}))
+
+			req := tt.args.req()
 			resp := httptest.NewRecorder()
-			handler.ServeHTTP(resp, &tt.args.req)
+			handler.ServeHTTP(resp, req)
 
 			if resp.Code != tt.wantStatus {
 				t.Errorf("Auth() = %v, want %v", resp.Code, tt.wantStatus)
 			}
 
-			if tt.wantExtraHeader != nil && !tt.wantExtraHeader(resp.Header(), tt.args.req.Header) {
-				t.Errorf("Wrong Header: %v", tt.args.req.Header)
+			if tt.wantExtraHeader != nil && !tt.wantExtraHeader(resp.Header(), req.Header) {
+				t.Errorf("Wrong Header: %v", req.Header)
 			}
 		})
 	}
@@ -210,43 +235,43 @@ func TestUserFromContext(t *testing.T) {
 		name      string
 		ctx       context.Context
 		pkUserKey string
-		wantVal   string
+		wantVal   []byte
 		wantOk    bool
 	}{
 		{
 			name:      "empty context",
 			ctx:       context.Background(),
 			pkUserKey: "pkUserKey",
-			wantVal:   "",
+			wantVal:   nil,
 			wantOk:    false,
 		},
 		{
 			name:      "missing key",
 			ctx:       context.WithValue(context.Background(), "otherKey", "value"),
 			pkUserKey: "pkUserKey",
-			wantVal:   "",
+			wantVal:   nil,
 			wantOk:    false,
 		},
 		{
 			name:      "empty value",
 			ctx:       context.WithValue(context.Background(), "pkUserKey", ""),
 			pkUserKey: "pkUserKey",
-			wantVal:   "",
+			wantVal:   nil,
 			wantOk:    false,
 		},
 		{
 			name:      "valid value",
-			ctx:       context.WithValue(context.Background(), "pkUserKey", "value"),
+			ctx:       context.WithValue(context.Background(), "pkUserKey", []byte("value")),
 			pkUserKey: "pkUserKey",
-			wantVal:   "value",
+			wantVal:   []byte("value"),
 			wantOk:    true,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotVal, gotOk := UserFromContext(tt.ctx, tt.pkUserKey)
-			assert.Equalf(t, tt.wantVal, gotVal, "UserFromContext(%v, %v)", tt.ctx, tt.pkUserKey)
-			assert.Equalf(t, tt.wantOk, gotOk, "UserFromContext(%v, %v)", tt.ctx, tt.pkUserKey)
+			gotVal, gotOk := UserIDFromCtx(tt.ctx, tt.pkUserKey)
+			assert.Equalf(t, tt.wantVal, gotVal, "UserIDFromCtx(%v, %v)", tt.ctx, tt.pkUserKey)
+			assert.Equalf(t, tt.wantOk, gotOk, "UserIDFromCtx(%v, %v)", tt.ctx, tt.pkUserKey)
 		})
 	}
 }

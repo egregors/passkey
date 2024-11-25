@@ -10,6 +10,6 @@ packages:
   github.com/egregors/passkey:
     interfaces:
       Logger:
+      User:
       UserStore:
       SessionStore:
-      User:

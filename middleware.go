@@ -38,9 +38,7 @@ func (p *Passkey) Auth(userIDKey string, onSuccess, onFail http.HandlerFunc) fun
 				return
 			}
 
-			ctx := r.Context()
-			// TODO: add username as well?
-			ctx = context.WithValue(ctx, userIDKey, string(session.UserID))
+			ctx := context.WithValue(r.Context(), userIDKey, session.UserID)
 			r = r.WithContext(ctx)
 
 			exec(onSuccess, w, r)
@@ -67,15 +65,15 @@ func RedirectUnauthorized(target url.URL) http.HandlerFunc {
 	}
 }
 
-// UserFromContext returns the user ID from the request context. If the userID is not found, it returns an empty string.
-func UserFromContext(ctx context.Context, pkUserKey string) (string, bool) {
+// UserIDFromCtx returns the user ID from the request context. If the userID is not found, it returns an empty string.
+func UserIDFromCtx(ctx context.Context, pkUserKey string) ([]byte, bool) {
 	if ctx.Value(pkUserKey) == nil {
-		return "", false
+		return nil, false
 	}
 
-	if id, ok := ctx.Value(pkUserKey).(string); ok && id != "" {
+	if id, ok := ctx.Value(pkUserKey).([]byte); ok && len(id) > 0 {
 		return id, true
 	}
 
-	return "", false
+	return nil, false
 }

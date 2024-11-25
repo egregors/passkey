@@ -26,9 +26,8 @@ const (
 type Config struct {
 	WebauthnConfig *webauthn.Config
 	UserStore
-	AuthSessionStore  SessionStore[webauthn.SessionData]
-	UserSessionStore  SessionStore[UserSessionData]
-	UserSessionMaxAge time.Duration
+	AuthSessionStore SessionStore[webauthn.SessionData]
+	UserSessionStore SessionStore[UserSessionData]
 }
 
 type UserSessionData struct {
@@ -131,7 +130,7 @@ func setupDefaultOptions(p *Passkey) {
 }
 
 func (p *Passkey) raiseWarnings() {
-	if p.cfg.UserSessionMaxAge == 0 {
+	if p.cookieSettings.userSessionMaxAge == 0 {
 		p.log.Warnf("session max age is not set")
 	}
 
