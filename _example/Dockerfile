@@ -1,17 +1,17 @@
-FROM golang:1.22-alpine AS builder
+# Description: Dockerfile for building the example application
+# It should be call from the root directory of the project because of the context
+FROM golang:1.23-alpine AS builder
 
 WORKDIR /app
 
 COPY . .
 
-RUN go mod init passkey_demo && go mod tidy
-
-RUN go build -o main ./*.go
+RUN go build -o ./_example/main ./_example/*.go
 
 FROM scratch
 
-COPY --from=builder /app/main /main
-COPY --from=builder /app/web /web
+COPY --from=builder /app/_example/main /main
+COPY --from=builder /app/_example/web /web
 
 EXPOSE 8080
 

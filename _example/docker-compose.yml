@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   traefik:
     image: traefik:v2.9
@@ -17,7 +15,9 @@ services:
       - "443:443"
 
   app:
-    build: .
+    build:
+      context: ../
+      dockerfile: _example/Dockerfile
     image: app
     environment:
       - PROTO=https
@@ -25,6 +25,6 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.app.tls=true"
-      - "traefik.http.routers.app.rule=Host(`localhost`, `192.168.8.151`)"
+      - "traefik.http.routers.app.rule=Host(`localhost`)"
       - "traefik.http.routers.app.entrypoints=websecure"
       - "traefik.http.services.app.loadbalancer.server.port=8080"

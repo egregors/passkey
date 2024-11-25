@@ -27,8 +27,8 @@ type UserStore interface {
 	GetByName(username string) (User, error)
 }
 
-// SessionStore is a storage for some session data
-type SessionStore[T any] interface {
+// SessionStore is a storage for session data
+type SessionStore[T webauthn.SessionData | UserSessionData] interface {
 	Create(data T) (string, error)
 	Delete(token string)
 

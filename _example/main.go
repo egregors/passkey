@@ -46,6 +46,7 @@ func main() {
 		},
 		passkey.WithLogger(l),
 		passkey.WithUserSessionMaxAge(60*time.Minute),
+		passkey.WithSessionCookieNamePrefix("passkeyDemo"),
 		passkey.WithInsecureCookie(), // In order to support Safari on localhost. Do not use in production.
 	)
 	if err != nil {
@@ -79,7 +80,7 @@ func main() {
 
 	// start the server
 	l.Infof("Listening on %s\n", origin)
-	if err := http.ListenAndServe(serverPort, mux); err != nil {
+	if err := http.ListenAndServe(serverPort, mux); err != nil { //nolint:gosec
 		panic(err)
 	}
 }
@@ -94,6 +95,7 @@ func privateHandler() func(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// TODO: change it to "Hello, %user_name%". To do that i need a UserStorage here
 		pageData := struct {
 			UserID string
 		}{

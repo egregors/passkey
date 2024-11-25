@@ -8,7 +8,6 @@ import (
 )
 
 func (p *Passkey) beginRegistration(w http.ResponseWriter, r *http.Request) {
-	// TODO: refactoring, make it line option chain
 	p.log.Infof(">>> begin registration")
 
 	var err error
@@ -77,7 +76,7 @@ func (p *Passkey) finishRegistration(w http.ResponseWriter, r *http.Request) {
 			p.log.Debugf("cleaned up session cookie")
 			p.log.Debugf("<<< finish registration: done with error")
 		}
-		p.deleteAuthSessionCookie(w)
+		p.deleteAuthSessionCookie(p.cookieSettings.authSessionName, w)
 	}()
 
 	// Get the session key from cookie
@@ -171,7 +170,7 @@ func (p *Passkey) beginLogin(w http.ResponseWriter, r *http.Request) {
 	options, session, err := p.webAuthn.BeginLogin(user)
 	if err != nil {
 		err = fmt.Errorf("can't begin login: %w", err)
-		p.deleteAuthSessionCookie(w)
+		p.deleteAuthSessionCookie(p.cookieSettings.authSessionName, w)
 
 		return
 	}
@@ -267,7 +266,7 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 	// Delete the login session data
 	p.log.Debugf("deleting session data and cookie")
 	p.authSessionStore.Delete(sid.Value)
-	p.deleteAuthSessionCookie(w)
+	p.deleteAuthSessionCookie(p.cookieSettings.authSessionName, w)
 
 	p.log.Debugf("try to save user session")
 	t, err := p.userSessionStore.Create(UserSessionData{
@@ -319,11 +318,23 @@ func (p *Passkey) setSessionCookie(w http.ResponseWriter, name, value string, ma
 	})
 }
 
+// Logout deletes session from session store and deletes session cookie
+func (p *Passkey) Logout(w http.ResponseWriter, r *http.Request) {
+	sid, err := r.Cookie(p.cookieSettings.userSessionName)
+	if err != nil {
+		p.log.Errorf("can't get session cookie: %s", err.Error())
+
+		return
+	}
+
+	p.authSessionStore.Delete(sid.Value)
+	p.deleteAuthSessionCookie(p.cookieSettings.userSessionName, w)
+}
+
 // deleteSessionCookie deletes a cookie
-// TODO: make it universal: gelCookie(w, name)
-func (p *Passkey) deleteAuthSessionCookie(w http.ResponseWriter) { //nolint:unparam // it's ok here
+func (p *Passkey) deleteAuthSessionCookie(name string, w http.ResponseWriter) { //nolint:unparam // it's ok here
 	http.SetCookie(w, &http.Cookie{
-		Name:    p.cookieSettings.authSessionName,
+		Name:    name,
 		Value:   "",
 		Expires: time.Unix(0, 0),
 		MaxAge:  -1,
