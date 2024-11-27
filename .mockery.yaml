@@ -13,3 +13,7 @@ packages:
       User:
       UserStore:
       SessionStore:
+      WebAuthnInterface:
+  github.com/egregors/passkey/deps:
+    interfaces:
+      WebAuthnInterface:

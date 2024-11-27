@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/egregors/passkey/deps"
 	"github.com/go-webauthn/webauthn/webauthn"
 
 	logger "github.com/egregors/passkey/log"
@@ -49,7 +50,7 @@ type CookieSettings struct {
 type Passkey struct {
 	cfg Config
 
-	webAuthn *webauthn.WebAuthn
+	webAuthn deps.WebAuthnInterface
 
 	userStore        UserStore
 	authSessionStore SessionStore[webauthn.SessionData]

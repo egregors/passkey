@@ -252,7 +252,6 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 
 	// If login was successful, update the credential object
 	p.log.Debugf("putting credential to user")
-	// TODO: put? save? update?
 	p.log.Debugf("try to save user")
 	user.PutCredential(*credential)
 	err = p.userStore.Update(user)
