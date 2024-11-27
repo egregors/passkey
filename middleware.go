@@ -65,7 +65,7 @@ func RedirectUnauthorized(target url.URL) http.HandlerFunc {
 	}
 }
 
-// UserIDFromCtx returns the user ID from the request context. If the userID is not found, it returns an empty string.
+// UserIDFromCtx returns the user ID from the request context. If the userID is not found, it returns nil and false.
 func UserIDFromCtx(ctx context.Context, pkUserKey string) ([]byte, bool) {
 	if ctx.Value(pkUserKey) == nil {
 		return nil, false
