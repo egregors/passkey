@@ -15,24 +15,27 @@
 ## Table of Contents
 
 <!-- TOC -->
-  * [Table of Contents](#table-of-contents)
-  * [Features](#features)
-  * [Installation](#installation)
-  * [Usage](#usage)
+
+* [Table of Contents](#table-of-contents)
+* [Features](#features)
+* [Installation](#installation)
+* [Usage](#usage)
     * [Library Usage](#library-usage)
-      * [Implement storages: `UserStore` and two `SessionStore` one for WebAuthn and one for general session](#implement-storages-userstore-and-two-sessionstore-one-for-webauthn-and-one-for-general-session)
-      * [Create a new `Passkey` instance and mount the routes](#create-a-new-passkey-instance-and-mount-the-routes)
-      * [Client-side](#client-side)
+        * [Implement storages: `UserStore` and two
+          `SessionStore` one for WebAuthn and one for general session](#implement-storages-userstore-and-two-sessionstore-one-for-webauthn-and-one-for-general-session)
+        * [Create a new `Passkey` instance and mount the routes](#create-a-new-passkey-instance-and-mount-the-routes)
+        * [Client-side](#client-side)
     * [Example Application](#example-application)
-  * [API](#api)
+* [API](#api)
     * [Middleware](#middleware)
-  * [Development](#development)
+* [Development](#development)
     * [Common tasks](#common-tasks)
     * [Mocks](#mocks)
     * [Troubleshooting](#troubleshooting)
-      * [FAQ](#faq)
-  * [Contributing](#contributing)
-  * [License](#license)
+        * [FAQ](#faq)
+* [Contributing](#contributing)
+* [License](#license)
+
 <!-- TOC -->
 
 ## Features
@@ -52,7 +55,7 @@
 
 Used in project:
 ![Static Badge](https://img.shields.io/badge/Go_WebAuthn-v0.11.2-green)
-![Static Badge](https://img.shields.io/badge/TS%5CJS%20SimpleWebAuthn-v11.0.0-green)
+![Static Badge](https://img.shields.io/badge/TS%5CJS%20SimpleWebAuthn-v12.0.0-green)
 
 Actual versions:
 ![GitHub Release](https://img.shields.io/github/v/release/go-webauthn/webauthn?label=Go%20WebAuthn)
