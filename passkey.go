@@ -1,12 +1,14 @@
 package passkey
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
 	"time"
 
+	"github.com/egregors/passkey/deps"
 	"github.com/go-webauthn/webauthn/webauthn"
+
+	logger "github.com/egregors/passkey/log"
 )
 
 const (
@@ -15,38 +17,49 @@ const (
 	pathLoginBegin     = "/passkey/loginBegin"
 	pathLoginFinish    = "/passkey/loginFinish"
 
-	defaultSessionCookieName = "sid"
-	defaultCookieMaxAge      = 60 * time.Minute
+	defaultSessionNamePrefix = "pk"
+	defaultAuthSessionName   = "asid"
+	defaultUserSessionName   = "usid"
+	defaultAuthSessionMaxAge = 5 * time.Minute
+	defaultUserSessionMaxAge = 60 * time.Minute
 )
 
 type Config struct {
 	WebauthnConfig *webauthn.Config
 	UserStore
-	SessionStore
-	SessionMaxAge time.Duration
+	AuthSessionStore SessionStore[webauthn.SessionData]
+	UserSessionStore SessionStore[UserSessionData]
+}
+
+type UserSessionData struct {
+	UserID  []byte
+	Expires time.Time
 }
 
 type CookieSettings struct {
-	Name     string
-	Path     string
-	MaxAge   time.Duration
-	Secure   bool
-	HttpOnly bool //nolint:stylecheck // naming from http.Cookie
-	SameSite http.SameSite
+	Path              string
+	authSessionName   string
+	userSessionName   string
+	authSessionMaxAge time.Duration
+	userSessionMaxAge time.Duration
+	Secure            bool
+	HttpOnly          bool //nolint:stylecheck // naming from http.Cookie
+	SameSite          http.SameSite
 }
 
 type Passkey struct {
 	cfg Config
 
-	webAuthn *webauthn.WebAuthn
+	webAuthn deps.WebAuthnInterface
 
-	userStore    UserStore
-	sessionStore SessionStore
+	userStore        UserStore
+	authSessionStore SessionStore[webauthn.SessionData]
+	userSessionStore SessionStore[UserSessionData]
 
 	mux       *http.ServeMux
 	staticMux *http.ServeMux
 
-	l              Logger
+	log            Logger
 	cookieSettings CookieSettings
 }
 
@@ -55,45 +68,61 @@ func New(cfg Config, opts ...Option) (*Passkey, error) {
 	p := &Passkey{
 		cfg: cfg,
 
-		userStore:    cfg.UserStore,
-		sessionStore: cfg.SessionStore,
+		userStore:        cfg.UserStore,
+		authSessionStore: cfg.AuthSessionStore,
+		userSessionStore: cfg.UserSessionStore,
 
 		mux:       http.NewServeMux(),
 		staticMux: http.NewServeMux(),
-
-		cookieSettings: CookieSettings{
-			Path:     "/",
-			Secure:   true,
-			HttpOnly: true,
-			SameSite: http.SameSiteLaxMode,
-		},
 	}
 
+	p.setupCookieSettings()
 	p.setupOptions(opts)
 	p.setupRoutes()
 
 	err := p.setupWebAuthn()
 	if err != nil {
-		return nil, errors.New("can't create webauthn: " + err.Error())
+		return nil, fmt.Errorf("can't create webauthn: %w", err)
 	}
 
+	if err := p.must(); err != nil {
+		return nil, fmt.Errorf("invalid cfg: %w", err)
+	}
 	p.raiseWarnings()
 
 	return p, nil
 }
 
+func (p *Passkey) must() error {
+	return mustNotNil(map[string]any{
+		"userStore":        p.userStore,
+		"authSessionStore": p.authSessionStore,
+		"userSessionStore": p.userSessionStore,
+	})
+}
+
+func mustNotNil(nillable map[string]any) error {
+	for k, v := range nillable {
+		if v == nil {
+			return fmt.Errorf("%s can't be nil", k)
+		}
+	}
+
+	return nil
+}
+
 func (p *Passkey) setupOptions(opts []Option) {
 	setupDefaultOptions(p)
-	for _, opts := range opts {
-		opts(p)
+	for _, opt := range opts {
+		opt(p)
 	}
 }
 
 func setupDefaultOptions(p *Passkey) {
 	defaultOpts := []Option{
-		WithLogger(&NullLogger{}),
-		WithSessionCookieName(defaultSessionCookieName),
-		WithCookieMaxAge(defaultCookieMaxAge),
+		WithLogger(logger.NewLogger()),
+		WithSessionCookieNamePrefix(defaultSessionNamePrefix),
+		WithUserSessionMaxAge(defaultUserSessionMaxAge),
 	}
 
 	for _, opt := range defaultOpts {
@@ -102,12 +131,12 @@ func setupDefaultOptions(p *Passkey) {
 }
 
 func (p *Passkey) raiseWarnings() {
-	if p.cfg.SessionMaxAge == 0 {
-		p.l.Warnf("session max age is not set")
+	if p.cookieSettings.userSessionMaxAge == 0 {
+		p.log.Warnf("session max age is not set")
 	}
 
 	if !p.cookieSettings.Secure {
-		p.l.Warnf("cookie is not secure!")
+		p.log.Warnf("cookie is not secure!")
 	}
 }
 
@@ -115,7 +144,7 @@ func (p *Passkey) setupWebAuthn() error {
 	webAuthn, err := webauthn.New(p.cfg.WebauthnConfig)
 	if err != nil {
 		fmt.Printf("[FATA] %s", err.Error())
-		p.l.Errorf("can't create webauthn: %s", err.Error())
+		p.log.Errorf("can't create webauthn: %s", err.Error())
 		return err
 	}
 
@@ -136,4 +165,17 @@ func (p *Passkey) setupRoutes() {
 // MountRoutes mounts passkey routes to mux
 func (p *Passkey) MountRoutes(mux *http.ServeMux, path string) {
 	mux.Handle(path, http.StripPrefix(path[:len(path)-1], p.mux))
+}
+
+func (p *Passkey) setupCookieSettings() {
+	p.cookieSettings = CookieSettings{
+		Path:              "/",
+		authSessionName:   defaultAuthSessionName,
+		userSessionName:   defaultUserSessionName,
+		authSessionMaxAge: defaultAuthSessionMaxAge,
+		userSessionMaxAge: defaultUserSessionMaxAge,
+		Secure:            true,
+		HttpOnly:          true,
+		SameSite:          http.SameSiteLaxMode,
+	}
 }

@@ -1,6 +1,9 @@
+## workspace
 # github.com/davecgh/go-spew v1.1.1
 ## explicit
 github.com/davecgh/go-spew/spew
+# github.com/egregors/passkey v0.0.0 => .
+## explicit; go 1.23
 # github.com/fxamacker/cbor/v2 v2.7.0
 ## explicit; go 1.17
 github.com/fxamacker/cbor/v2
@@ -38,6 +41,7 @@ github.com/stretchr/objx
 ## explicit; go 1.17
 github.com/stretchr/testify/assert
 github.com/stretchr/testify/mock
+github.com/stretchr/testify/require
 # github.com/x448/float16 v0.8.4
 ## explicit; go 1.11
 github.com/x448/float16

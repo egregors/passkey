@@ -10,8 +10,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/egregors/passkey"
 	"github.com/go-webauthn/webauthn/webauthn"
+
+	"github.com/egregors/passkey"
+	"github.com/egregors/passkey/log"
 )
 
 //go:embed web/*
@@ -28,7 +30,7 @@ func main() {
 
 	origin := fmt.Sprintf("%s://%s%s%s", proto, sub, host, originPort)
 
-	storage := NewStorage()
+	l := log.NewLogger()
 
 	pkey, err := passkey.New(
 		passkey.Config{
@@ -37,12 +39,13 @@ func main() {
 				RPID:          host,              // Generally the FQDN for your site
 				RPOrigins:     []string{origin},  // The origin URLs allowed for WebAuthn
 			},
-			UserStore:     storage,
-			SessionStore:  storage,
-			SessionMaxAge: 24 * time.Hour,
+			UserStore:        NewUserStore(),
+			AuthSessionStore: NewSessionStore[webauthn.SessionData](),
+			UserSessionStore: NewSessionStore[passkey.UserSessionData](),
 		},
-		passkey.WithLogger(NewLogger()),
-		passkey.WithCookieMaxAge(60*time.Minute),
+		passkey.WithLogger(l),
+		passkey.WithUserSessionMaxAge(60*time.Minute),
+		passkey.WithSessionCookieNamePrefix("passkeyDemo"),
 		passkey.WithInsecureCookie(), // In order to support Safari on localhost. Do not use in production.
 	)
 	if err != nil {
@@ -75,8 +78,8 @@ func main() {
 	mux.Handle("/private", withAuth(privateMux))
 
 	// start the server
-	fmt.Printf("Listening on %s\n", origin)
-	if err := http.ListenAndServe(serverPort, mux); err != nil {
+	l.Infof("Listening on %s\n", origin)
+	if err := http.ListenAndServe(serverPort, mux); err != nil { //nolint:gosec
 		panic(err)
 	}
 }
@@ -84,17 +87,18 @@ func main() {
 func privateHandler() func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// get the userID from the request context
-		userID, ok := passkey.UserFromContext(r.Context(), userKey)
+		userID, ok := passkey.UserIDFromCtx(r.Context(), userKey)
 		if !ok {
 			http.Error(w, "No user found", http.StatusUnauthorized)
 
 			return
 		}
 
+		// TODO: change it to "Hello, %user_name%". To do that i need a UserStorage here
 		pageData := struct {
 			UserID string
 		}{
-			UserID: userID,
+			UserID: string(userID),
 		}
 
 		tmpl, err := template.ParseFS(webFiles, "web/private.html")

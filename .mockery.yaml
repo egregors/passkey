@@ -1,4 +1,6 @@
 with-expecter: True
+issue-845-fix: True
+resolve-type-alias: False
 inpackage: True
 dir: "{{.InterfaceDir}}"
 mockname: "Mock{{.InterfaceName}}"
@@ -8,6 +10,10 @@ packages:
   github.com/egregors/passkey:
     interfaces:
       Logger:
+      User:
       UserStore:
       SessionStore:
-      User:
+      WebAuthnInterface:
+  github.com/egregors/passkey/deps:
+    interfaces:
+      WebAuthnInterface:
