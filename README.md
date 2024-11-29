@@ -45,9 +45,6 @@
 - **Session Management**: Manage user sessions securely.
 - **Middleware Support**: Middleware for authenticated routes.
 
-> [!WARNING]  
-> Stable version is not released yet. The API and the lib are under development.
-
 > [!NOTE]
 > In general, this library is built on top of two open-source solutions:
 > * Golang WebAuthn Library – https://github.com/go-webauthn/webauthn
