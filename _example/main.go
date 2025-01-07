@@ -21,6 +21,8 @@ var webFiles embed.FS
 
 const userKey = "pkUser"
 
+var userStore = NewUserStore()
+
 func main() {
 	proto := getEnv("PROTO", "http")             // "http" | "https"
 	sub := getEnv("SUB", "")                     // "" | "login."
@@ -39,7 +41,7 @@ func main() {
 				RPID:          host,              // Generally the FQDN for your site
 				RPOrigins:     []string{origin},  // The origin URLs allowed for WebAuthn
 			},
-			UserStore:        NewUserStore(),
+			UserStore:        userStore,
 			AuthSessionStore: NewSessionStore[webauthn.SessionData](),
 			UserSessionStore: NewSessionStore[passkey.UserSessionData](),
 		},
@@ -94,11 +96,12 @@ func privateHandler() func(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// TODO: change it to "Hello, %user_name%". To do that i need a UserStorage here
+		user, _ := userStore.Get(userID)
+
 		pageData := struct {
 			UserID string
 		}{
-			UserID: string(userID),
+			UserID: user.WebAuthnName(),
 		}
 
 		tmpl, err := template.ParseFS(webFiles, "web/private.html")
