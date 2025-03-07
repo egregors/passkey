@@ -40,7 +40,7 @@ update-go-deps:  ## Updating Go dependencies
 	done
 	go mod tidy
 ifneq (,$(wildcard vendor))
-	go mod vendor
+	go work vendor
 endif
 
 ## Help

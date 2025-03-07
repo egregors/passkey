@@ -36,24 +36,35 @@ linters-settings:
 
 linters:
   enable:
+    - staticcheck
     - revive
     - govet
     - unconvert
     - gosec
-    - gocyclo
-    - dupl
-    - misspell
     - unparam
-    - unused
     - typecheck
     - ineffassign
     - stylecheck
     - gochecknoinits
-    - exportloopref
+    - copyloopvar
     - gocritic
     - nakedret
     - gosimple
     - prealloc
+    - unused
+    - contextcheck
+    - copyloopvar
+    - decorder
+    - errorlint
+    - exptostd
+    #    - gochecknoglobals
+    - gofmt
+    - goimports
+    - intrange
+    - nilerr
+    - predeclared
+    - testifylint
+    - thelper
   fast: false
   disable-all: true
 
