@@ -370,7 +370,7 @@ func TestPasskey_finishRegistration(t *testing.T) {
 				assert.Contains(t, string(body), "Registration Success")
 			},
 			checkCookie: func(cookies []*http.Cookie) {
-				assert.Len(t, cookies, 0)
+				assert.Empty(t, cookies)
 			},
 		},
 		{
@@ -428,7 +428,7 @@ func TestPasskey_finishRegistration(t *testing.T) {
 			checkCookie: func(cookies []*http.Cookie) {
 				// check that the auth cookie is deleted, but
 				// TODO: looks like we actually didn't set any cookie in this handler
-				assert.Len(t, cookies, 0)
+				assert.Empty(t, cookies)
 			},
 		},
 		{
@@ -469,7 +469,7 @@ func TestPasskey_finishRegistration(t *testing.T) {
 				assert.Contains(t, string(body), "can't get user: ")
 			},
 			checkCookie: func(cookies []*http.Cookie) {
-				assert.Len(t, cookies, 0)
+				assert.Empty(t, cookies)
 			},
 		},
 		{
@@ -516,7 +516,7 @@ func TestPasskey_finishRegistration(t *testing.T) {
 				assert.Contains(t, string(body), "can't finish registration: ")
 			},
 			checkCookie: func(cookies []*http.Cookie) {
-				assert.Len(t, cookies, 0)
+				assert.Empty(t, cookies)
 			},
 		},
 		{
@@ -567,7 +567,7 @@ func TestPasskey_finishRegistration(t *testing.T) {
 				assert.Contains(t, string(body), "can't save user: ")
 			},
 			checkCookie: func(cookies []*http.Cookie) {
-				assert.Len(t, cookies, 0)
+				assert.Empty(t, cookies)
 			},
 		},
 	}

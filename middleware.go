@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+type AuthUserIDKey string
+
 // Auth implements a middleware handler for adding passkey http auth to a route.
 // It checks if the request has a valid session cookie and if the session is still valid.
 // If the session is valid:
@@ -15,7 +17,7 @@ import (
 //
 // Otherwise:
 //   - `onFail` handler is called and the next handler is not executed.
-func (p *Passkey) Auth(userIDKey string, onSuccess, onFail http.HandlerFunc) func(next http.Handler) http.Handler {
+func (p *Passkey) Auth(userIDKey AuthUserIDKey, onSuccess, onFail http.HandlerFunc) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			sid, err := r.Cookie(p.cookieSettings.userSessionName)
@@ -66,7 +68,7 @@ func RedirectUnauthorized(target url.URL) http.HandlerFunc {
 }
 
 // UserIDFromCtx returns the user ID from the request context. If the userID is not found, it returns nil and false.
-func UserIDFromCtx(ctx context.Context, pkUserKey string) ([]byte, bool) {
+func UserIDFromCtx(ctx context.Context, pkUserKey AuthUserIDKey) ([]byte, bool) {
 	if ctx.Value(pkUserKey) == nil {
 		return nil, false
 	}
