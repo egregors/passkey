@@ -1,6 +1,12 @@
 Changes
 =======
 
+#### ver.: 0.1.3 (07.03.2025)
+
+* Dependency update (js lib, go lib)
+* Update linting rules
+* Auth userID key for Auth middleware is now must by typed as auth.AuthUserIDKey
+
 #### ver.: 0.1.2 (06.01.2025)
 
 * Dependency update (js lib, _example app)
