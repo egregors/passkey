@@ -143,7 +143,7 @@ import (
 //go:embed web/*
 var webFiles embed.FS
 
-const userKey = "pkUser"
+const userKey passkey.AuthUserIDKey = "pkUser"
 
 func main() {
 	proto := getEnv("PROTO", "http")             // "http" | "https"
