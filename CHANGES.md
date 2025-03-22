@@ -1,6 +1,10 @@
 Changes
 =======
 
+#### ver.: 0.1.4 (22.03.2025) 
+
+* Dependency update
+
 #### ver.: 0.1.3 (07.03.2025)
 
 * Dependency update (js lib, go lib)
