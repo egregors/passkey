@@ -1,8 +1,7 @@
 module github.com/egregors/passkey
 
 go 1.23
-
-toolchain go1.23.3
+toolchain go1.24.1
 
 require (
 	github.com/go-webauthn/webauthn v0.12.1
@@ -13,7 +12,7 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/fxamacker/cbor/v2 v2.7.0 // indirect
 	github.com/go-webauthn/x v0.1.18 // indirect
-	github.com/golang-jwt/jwt/v5 v5.2.1 // indirect
+	github.com/golang-jwt/jwt/v5 v5.2.2 // indirect
 	github.com/google/go-tpm v0.9.3 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
