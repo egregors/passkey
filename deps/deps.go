@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/go-webauthn/webauthn/protocol"
-	. "github.com/go-webauthn/webauthn/webauthn" //nolint:stylecheck // naming from webauthn.WebAuthn
+	. "github.com/go-webauthn/webauthn/webauthn" //nolint:staticcheck,revive // naming from webauthn.WebAuthn
 )
 
 type WebAuthnInterface interface {

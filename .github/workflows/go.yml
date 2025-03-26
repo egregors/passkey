@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: set up go 1.21
+      - name: set up go
         uses: actions/setup-go@v3
         with:
           go-version: "1.22"
@@ -34,9 +34,9 @@ jobs:
           TZ: "UTC"
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v3
+        uses: golangci/golangci-lint-action@v7
         with:
-          version: latest
+          version: v2.0.2
 
       - name: install goveralls
         run: |

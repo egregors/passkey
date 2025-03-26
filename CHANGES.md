@@ -1,6 +1,10 @@
 Changes
 =======
 
+#### ver.: 0.1.5 (26.03.2025)
+
+* Move to golangci-lint v2
+
 #### ver.: 0.1.4 (22.03.2025) 
 
 * Dependency update

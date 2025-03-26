@@ -43,7 +43,7 @@ type CookieSettings struct {
 	authSessionMaxAge time.Duration
 	userSessionMaxAge time.Duration
 	Secure            bool
-	HttpOnly          bool //nolint:stylecheck // naming from http.Cookie
+	HttpOnly          bool //nolint:revive // naming from http.Cookie
 	SameSite          http.SameSite
 }
 
