@@ -1,7 +1,11 @@
 Changes
 =======
 
-#### ver.: 0.1.5 (26.03.2025)
+#### ver.: 1.0.6 (15.04.2025)
+
+* Security update (go deps)
+
+#### ver.: 1.0.5 (26.03.2025)
 
 * Move to golangci-lint v2
 
