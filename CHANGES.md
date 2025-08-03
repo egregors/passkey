@@ -1,6 +1,11 @@
 Changes
 =======
 
+#### ver.: 1.0.7 (03.8.2025)
+
+* Go deps update
+* JS deps update
+
 #### ver.: 1.0.6 (15.04.2025)
 
 * Security update (go deps)
@@ -9,7 +14,7 @@ Changes
 
 * Move to golangci-lint v2
 
-#### ver.: 0.1.4 (22.03.2025) 
+#### ver.: 0.1.4 (22.03.2025)
 
 * Dependency update
 
