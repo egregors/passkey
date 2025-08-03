@@ -1,6 +1,11 @@
 Changes
 =======
 
+#### ver.: 1.0.7 (03.08.2025)
+
+* Update Golang WebAuthn Library to v0.13.4
+* Update JS/TS SimpleWebAuthn client to v13.1.2
+
 #### ver.: 1.0.6 (15.04.2025)
 
 * Security update (go deps)
