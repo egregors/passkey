@@ -52,7 +52,7 @@
 
 Used in project:
 ![Static Badge](https://img.shields.io/badge/Go_WebAuthn-v0.14.0-green)
-![Static Badge](https://img.shields.io/badge/TS%5CJS%20SimpleWebAuthn-v13.1.2-green)
+![Static Badge](https://img.shields.io/badge/TS%5CJS%20SimpleWebAuthn-v13.2.0-green)
 
 Actual versions:
 ![GitHub Release](https://img.shields.io/github/v/release/go-webauthn/webauthn?label=Go%20WebAuthn)
