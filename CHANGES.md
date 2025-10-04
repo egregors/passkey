@@ -4,7 +4,6 @@ Changes
 #### ver.: 1.0.8 (04.10.2025)
 
 * Go WebAuthn deps update (v0.13.4 -> v0.14.0)
-* JS SimpleWebAuthn deps update (v13.1.2 -> v13.2.1)
 
 #### ver.: 1.0.7 (03.8.2025)
 
