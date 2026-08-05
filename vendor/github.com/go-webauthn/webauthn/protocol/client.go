@@ -13,33 +13,59 @@ import (
 //
 // Specification: §5.8.1. Client Data Used in WebAuthn Signatures (https://www.w3.org/TR/webauthn/#dictdef-collectedclientdata)
 type CollectedClientData struct {
-	// Type the string "webauthn.create" when creating new credentials,
-	// and "webauthn.get" when getting an assertion from an existing credential. The
-	// purpose of this member is to prevent certain types of signature confusion attacks
-	// (where an attacker substitutes one legitimate signature for another).
-	Type         CeremonyType  `json:"type"`
-	Challenge    string        `json:"challenge"`
-	Origin       string        `json:"origin"`
-	TopOrigin    string        `json:"topOrigin,omitempty"`
-	CrossOrigin  bool          `json:"crossOrigin,omitempty"`
+	// Type contains the string "webauthn.create" when creating new credentials, and "webauthn.get" when getting an
+	// assertion from an existing credential. The purpose of this member is to prevent certain types of signature
+	// confusion attacks (where an attacker substitutes one legitimate signature for another).
+	Type CeremonyType `json:"type"`
+
+	// Challenge contains the base64url encoding of the challenge provided by the Relying Party.
+	Challenge string `json:"challenge"`
+
+	// Origin contains the fully qualified origin of the requester, as provided to the authenticator by the client.
+	Origin string `json:"origin"`
+
+	// TopOrigin contains the fully qualified top-level origin of the requester when the client is cross-origin.
+	// This is only present when CrossOrigin is true.
+	//
+	// WebAuthn Level 3.
+	TopOrigin string `json:"topOrigin,omitempty"`
+
+	// CrossOrigin indicates whether the calling context is an iframe that is not same-origin with its ancestor.
+	//
+	// WebAuthn Level 3.
+	CrossOrigin bool `json:"crossOrigin,omitempty"`
+
+	// TokenBinding contains information about the state of the Token Binding protocol.
 	TokenBinding *TokenBinding `json:"tokenBinding,omitempty"`
 
-	// Chromium (Chrome) returns a hint sometimes about how to handle clientDataJSON in a safe manner.
+	// Hint is an opaque field that may be added by the client. Chromium-based browsers include this field to remind
+	// implementers not to perform string comparison on the clientDataJSON.
 	Hint string `json:"new_keys_may_be_added_here,omitempty"`
 }
 
+// CeremonyType represents the type of WebAuthn ceremony being performed.
+//
+// Specification: §5.8.1. Client Data Used in WebAuthn Signatures (https://www.w3.org/TR/webauthn/#dom-collectedclientdata-type)
 type CeremonyType string
 
 const (
+	// CreateCeremony is the ceremony type for credential registration ("webauthn.create").
 	CreateCeremony CeremonyType = "webauthn.create"
+
+	// AssertCeremony is the ceremony type for authentication assertion ("webauthn.get").
 	AssertCeremony CeremonyType = "webauthn.get"
 )
 
+// TokenBinding contains information about the state of the Token Binding protocol used when communicating with the
+// Relying Party. Its absence indicates that the client doesn't support token binding.
+//
+// Specification: §5.8.1. Client Data Used in WebAuthn Signatures (https://www.w3.org/TR/webauthn/#dom-collectedclientdata-tokenbinding)
 type TokenBinding struct {
 	Status TokenBindingStatus `json:"status"`
 	ID     string             `json:"id,omitempty"`
 }
 
+// TokenBindingStatus represents the state of Token Binding between the client and the Relying Party.
 type TokenBindingStatus string
 
 const (
@@ -47,7 +73,7 @@ const (
 	// Relying Party. In this case, the id member MUST be present.
 	Present TokenBindingStatus = "present"
 
-	// Supported indicates token binding was used when communicating with the
+	// Supported indicates the client supports token binding, but it was not
 	// negotiated when communicating with the Relying Party.
 	Supported TokenBindingStatus = "supported"
 
@@ -84,7 +110,9 @@ func FullyQualifiedOrigin(rawOrigin string) (fqOrigin string, err error) {
 //
 // Note: the rpTopOriginsVerify parameter does not accept the TopOriginVerificationMode value of
 // TopOriginDefaultVerificationMode as it's expected this value is updated by the config validation process.
-func (c *CollectedClientData) Verify(storedChallenge string, ceremony CeremonyType, rpOrigins, rpTopOrigins []string, rpTopOriginsVerify TopOriginVerificationMode) (err error) {
+//
+//nolint:gocyclo
+func (c *CollectedClientData) Verify(storedChallenge string, ceremony CeremonyType, rpOrigins, rpTopOrigins []string, rpTopOriginsVerify TopOriginVerificationMode, allowCrossOrigin bool) (err error) {
 	// Registration Step 3. Verify that the value of C.type is webauthn.create.
 
 	// Assertion Step 7. Verify that the value of C.type is the string webauthn.get.
@@ -115,38 +143,41 @@ func (c *CollectedClientData) Verify(storedChallenge string, ceremony CeremonyTy
 			WithInfo(fmt.Sprintf("Expected Values: %s, Received: %s", rpOrigins, c.Origin))
 	}
 
-	if rpTopOriginsVerify != TopOriginIgnoreVerificationMode {
-		switch len(c.TopOrigin) {
-		case 0:
-			break
+	if !allowCrossOrigin && c.CrossOrigin {
+		return ErrVerification.
+			WithDetails("Error validating cross origin flag").
+			WithInfo("The cross origin flag is invalid due to the configuration.")
+	}
+
+	switch len(c.TopOrigin) {
+	case 0:
+		break
+	default:
+		if !c.CrossOrigin {
+			return ErrVerification.
+				WithDetails("Error validating topOrigin").
+				WithInfo("The topOrigin can't have values unless crossOrigin is true.")
+		}
+
+		var possibleTopOrigins []string
+
+		switch rpTopOriginsVerify {
+		case TopOriginExplicitVerificationMode:
+			possibleTopOrigins = rpTopOrigins
+		case TopOriginAutoVerificationMode:
+			possibleTopOrigins = make([]string, 0, len(rpTopOrigins)+len(rpOrigins))
+			possibleTopOrigins = append(possibleTopOrigins, rpTopOrigins...)
+			possibleTopOrigins = append(possibleTopOrigins, rpOrigins...)
+		case TopOriginImplicitVerificationMode:
+			possibleTopOrigins = rpOrigins
 		default:
-			if !c.CrossOrigin {
-				return ErrVerification.
-					WithDetails("Error validating topOrigin").
-					WithInfo("The topOrigin can't have values unless crossOrigin is true.")
-			}
+			return ErrNotImplemented.WithDetails("Error handling unknown Top Origin verification mode")
+		}
 
-			var (
-				fqTopOrigin        string
-				possibleTopOrigins []string
-			)
-
-			switch rpTopOriginsVerify {
-			case TopOriginExplicitVerificationMode:
-				possibleTopOrigins = rpTopOrigins
-			case TopOriginAutoVerificationMode:
-				possibleTopOrigins = append(rpTopOrigins, rpOrigins...) //nolint:gocritic // This is intentional.
-			case TopOriginImplicitVerificationMode:
-				possibleTopOrigins = rpOrigins
-			default:
-				return ErrNotImplemented.WithDetails("Error handling unknown Top Origin verification mode")
-			}
-
-			if !IsOriginInHaystack(c.TopOrigin, possibleTopOrigins) {
-				return ErrVerification.
-					WithDetails("Error validating top origin").
-					WithInfo(fmt.Sprintf("Expected Values: %s, Received: %s", possibleTopOrigins, fqTopOrigin))
-			}
+		if !IsOriginInHaystack(c.TopOrigin, possibleTopOrigins) {
+			return ErrVerification.
+				WithDetails("Error validating top origin").
+				WithInfo(fmt.Sprintf("Expected Values: %s, Received: %s", possibleTopOrigins, c.TopOrigin))
 		}
 	}
 
@@ -170,28 +201,33 @@ func (c *CollectedClientData) Verify(storedChallenge string, ceremony CeremonyTy
 	return nil
 }
 
+// TopOriginVerificationMode determines how the Relying Party validates the topOrigin field in
+// [CollectedClientData]. This is relevant for cross-origin iframe scenarios where the top-level browsing context's
+// origin differs from the embedded origin making the WebAuthn API call.
+//
+// WebAuthn Level 3.
 type TopOriginVerificationMode int
 
 const (
-	// TopOriginDefaultVerificationMode represents the default verification mode for the Top Origin. At this time this
-	// mode is the same as TopOriginIgnoreVerificationMode until such a time as the specification becomes stable. This
-	// value is intended as a fallback value and implementers should very intentionally pick another option if they want
-	// stability.
+	// TopOriginDefaultVerificationMode is the zero value of [TopOriginVerificationMode] and has no matching rule in
+	// the verifier; passing it directly to [CollectedClientData.Verify] returns an "unknown Top Origin verification
+	// mode" error. High-level callers using [webauthn.Config] have this value coerced to
+	// [TopOriginExplicitVerificationMode] by config validation, which is the recommended default.
 	TopOriginDefaultVerificationMode TopOriginVerificationMode = iota
 
-	// TopOriginIgnoreVerificationMode ignores verification entirely.
-	TopOriginIgnoreVerificationMode
-
-	// TopOriginAutoVerificationMode represents the automatic verification mode for the Top Origin. In this mode the
-	// If the Top Origins parameter has values it checks against this, otherwise it checks against the Origins parameter.
+	// TopOriginAutoVerificationMode accepts the Top Origin if it matches any entry in either the allowed Top Origins
+	// list or the allowed Origins list. The two lists are unioned (RPTopOrigins ∪ RPOrigins). This is the most
+	// permissive of the three active modes and should only be used when an RP deliberately wants cross-origin and
+	// same-origin embeddings to share an allow-list.
 	TopOriginAutoVerificationMode
 
-	// TopOriginImplicitVerificationMode represents the implicit verification mode for the Top Origin. In this mode the
-	// Top Origin is verified against the allowed Origins values.
+	// TopOriginImplicitVerificationMode accepts the Top Origin only if it matches an entry in the allowed Origins
+	// list (RPOrigins). The RPTopOrigins list is ignored in this mode.
 	TopOriginImplicitVerificationMode
 
-	// TopOriginExplicitVerificationMode represents the explicit verification mode for the Top Origin. In this mode the
-	// Top Origin is verified against the allowed Top Origins values.
+	// TopOriginExplicitVerificationMode accepts the Top Origin only if it matches an entry in the allowed Top Origins
+	// list (RPTopOrigins). The RPOrigins list is ignored in this mode. This is the strictest mode and the one
+	// [webauthn.Config] coerces the zero value to.
 	TopOriginExplicitVerificationMode
 )
 

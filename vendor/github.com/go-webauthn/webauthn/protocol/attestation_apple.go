@@ -15,13 +15,14 @@ import (
 // The syntax of an Apple attestation statement is defined as follows:
 //
 // $$attStmtType //= (
-//                       fmt: "apple",
-//                       attStmt: appleStmtFormat
-//                   )
 //
-// appleStmtFormat = {
-//                       x5c: [ credCert: bytes, * (caCert: bytes) ]
-//                   }
+//	    fmt: "apple",
+//	    attStmt: appleStmtFormat
+//	)
+//
+//	appleStmtFormat = {
+//	                      x5c: [ credCert: bytes, * (caCert: bytes) ]
+//	                  }
 //
 // Specification: §8.8. Apple Anonymous Attestation Statement Format
 //
@@ -36,6 +37,10 @@ func attestationFormatValidationHandlerAppleAnonymous(att AttestationObject, cli
 
 	if x5c, certs, err = attStatementParseX5CS(att.AttStatement, stmtX5C); err != nil {
 		return "", nil, err
+	}
+
+	if len(certs) == 0 {
+		return "", nil, ErrInvalidAttestation.WithDetails("No certificates in x5c")
 	}
 
 	credCert := certs[0]
@@ -56,6 +61,8 @@ func attestationFormatValidationHandlerAppleAnonymous(att AttestationObject, cli
 	for _, ext := range credCert.Extensions {
 		if ext.Id.Equal(oidExtensionAppleAnonymousAttestation) {
 			attExtBytes = ext.Value
+
+			break
 		}
 	}
 

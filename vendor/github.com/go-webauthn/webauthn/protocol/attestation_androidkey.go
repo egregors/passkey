@@ -17,26 +17,29 @@ import (
 // encoded X.509 certificates. See the Android developer documentation. Its syntax is defined as follows:
 //
 // $$attStmtType //= (
-//                       fmt: "android-key",
-//                       attStmt: androidStmtFormat
-//                   )
 //
-// androidStmtFormat = {
-//                       alg: COSEAlgorithmIdentifier,
-//                       sig: bytes,
-//                       x5c: [ credCert: bytes, * (caCert: bytes) ]
-//                     }
+//	    fmt: "android-key",
+//	    attStmt: androidStmtFormat
+//	)
+//
+//	androidStmtFormat = {
+//	                      alg: COSEAlgorithmIdentifier,
+//	                      sig: bytes,
+//	                      x5c: [ credCert: bytes, * (caCert: bytes) ]
+//	                    }
 //
 // Specification: §8.4. Android Key Attestation Statement Format
 //
 // See: https://www.w3.org/TR/webauthn/#sctn-android-key-attestation
+//
+//nolint:gocyclo
 func attestationFormatValidationHandlerAndroidKey(att AttestationObject, clientDataHash []byte, _ metadata.Provider) (attestationType string, x5cs []any, err error) {
 	var (
 		alg int64
 		sig []byte
 		ok  bool
 	)
-	
+
 	// Given the verification procedure inputs attStmt, authenticatorData and clientDataHash, the verification procedure is as follows:
 	// §8.4.1. Verify that attStmt is valid CBOR conforming to the syntax defined above and perform CBOR decoding on it to extract
 	// the contained fields.
@@ -229,7 +232,6 @@ const (
 	// was generated inside or imported into keymaster.
 	KM_ORIGIN_UNKNOWN
 )
-
 
 const (
 	// KM_PURPOSE_ENCRYPT is usable with RSA, EC and AES keys.

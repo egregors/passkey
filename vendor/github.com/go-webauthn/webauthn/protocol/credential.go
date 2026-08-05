@@ -31,6 +31,10 @@ type ParsedCredential struct {
 	Type string `cbor:"type"`
 }
 
+// PublicKeyCredential represents the IDL of the same name and contains the raw response returned to the Relying Party
+// from the client's call to navigator.credentials.create() or navigator.credentials.get().
+//
+// Specification: §5.1. PublicKeyCredential Interface (https://www.w3.org/TR/webauthn/#iface-pkcredential)
 type PublicKeyCredential struct {
 	Credential
 
@@ -39,6 +43,7 @@ type PublicKeyCredential struct {
 	AuthenticatorAttachment string                                `json:"authenticatorAttachment,omitempty"`
 }
 
+// ParsedPublicKeyCredential is the parsed form of [PublicKeyCredential] with typed fields.
 type ParsedPublicKeyCredential struct {
 	ParsedCredential
 
@@ -47,12 +52,20 @@ type ParsedPublicKeyCredential struct {
 	AuthenticatorAttachment AuthenticatorAttachment               `json:"authenticatorAttachment,omitempty"`
 }
 
+// CredentialCreationResponse is the raw response returned to the Relying Party from the client for a credential
+// registration ceremony. It contains the [AuthenticatorAttestationResponse] which holds the attestation object
+// and client data.
+//
+// Specification: §5.4. Options for Credential Creation (https://www.w3.org/TR/webauthn/#sctn-credentialcreationoptions-extension)
 type CredentialCreationResponse struct {
 	PublicKeyCredential
 
 	AttestationResponse AuthenticatorAttestationResponse `json:"response"`
 }
 
+// ParsedCredentialCreationData is the parsed form of [CredentialCreationResponse]. It is the result of parsing the
+// raw response from the authenticator and can be used with [ParsedCredentialCreationData.Verify] to complete the
+// registration ceremony verification.
 type ParsedCredentialCreationData struct {
 	ParsedPublicKeyCredential
 
@@ -60,8 +73,12 @@ type ParsedCredentialCreationData struct {
 	Raw      CredentialCreationResponse
 }
 
-// ParseCredentialCreationResponse is a non-agnostic function for parsing a registration response from the http library
-// from stdlib. It handles some standard cleanup operations.
+// ParseCredentialCreationResponse parses a registration/attestation response from a [*http.Request]. The request body
+// is automatically drained and closed after parsing.
+//
+// This is the standard entry point when using [net/http]. For implementations that don't use [net/http], see
+// [ParseCredentialCreationResponseBody] (accepts an [io.Reader]) or [ParseCredentialCreationResponseBytes] (accepts a
+// []byte).
 func ParseCredentialCreationResponse(request *http.Request) (*ParsedCredentialCreationData, error) {
 	if request == nil || request.Body == nil {
 		return nil, ErrBadRequest.WithDetails("No response given")
@@ -75,8 +92,11 @@ func ParseCredentialCreationResponse(request *http.Request) (*ParsedCredentialCr
 	return ParseCredentialCreationResponseBody(request.Body)
 }
 
-// ParseCredentialCreationResponseBody is an agnostic version of ParseCredentialCreationResponse. Implementers are
-// therefore responsible for managing cleanup.
+// ParseCredentialCreationResponseBody parses a registration/attestation response from an [io.Reader]. The caller is
+// responsible for closing the reader if applicable.
+//
+// This is the framework-agnostic variant of [ParseCredentialCreationResponse]. For a [*http.Request] use
+// [ParseCredentialCreationResponse] instead. For raw bytes use [ParseCredentialCreationResponseBytes].
 func ParseCredentialCreationResponseBody(body io.Reader) (pcc *ParsedCredentialCreationData, err error) {
 	var ccr CredentialCreationResponse
 
@@ -87,8 +107,10 @@ func ParseCredentialCreationResponseBody(body io.Reader) (pcc *ParsedCredentialC
 	return ccr.Parse()
 }
 
-// ParseCredentialCreationResponseBytes is an alternative version of ParseCredentialCreationResponseBody that just takes
-// a byte slice.
+// ParseCredentialCreationResponseBytes parses a registration/attestation response from raw bytes.
+//
+// See also [ParseCredentialCreationResponse] (for [*http.Request]) and [ParseCredentialCreationResponseBody] (for
+// [io.Reader]).
 func ParseCredentialCreationResponseBytes(data []byte) (pcc *ParsedCredentialCreationData, err error) {
 	var ccr CredentialCreationResponse
 
@@ -147,9 +169,9 @@ func (ccr CredentialCreationResponse) Parse() (pcc *ParsedCredentialCreationData
 // Verify the Client and Attestation data.
 //
 // Specification: §7.1. Registering a New Credential (https://www.w3.org/TR/webauthn/#sctn-registering-a-new-credential)
-func (pcc *ParsedCredentialCreationData) Verify(storedChallenge string, verifyUser bool, verifyUserPresence bool, relyingPartyID string, rpOrigins, rpTopOrigins []string, rpTopOriginsVerify TopOriginVerificationMode, mds metadata.Provider, credParams []CredentialParameter) (clientDataHash []byte, err error) {
+func (pcc *ParsedCredentialCreationData) Verify(storedChallenge string, relyingPartyID string, rpOrigins, rpTopOrigins []string, rpTopOriginsVerify TopOriginVerificationMode, allowCrossOrigin, verifyUser, verifyUserPresence bool, mds metadata.Provider, credParams []CredentialParameter) (clientDataHash []byte, err error) {
 	// Handles steps 3 through 6 - Verifying the Client Data against the Relying Party's stored data.
-	if err = pcc.Response.CollectedClientData.Verify(storedChallenge, CreateCeremony, rpOrigins, rpTopOrigins, rpTopOriginsVerify); err != nil {
+	if err = pcc.Response.CollectedClientData.Verify(storedChallenge, CreateCeremony, rpOrigins, rpTopOrigins, rpTopOriginsVerify, allowCrossOrigin); err != nil {
 		return nil, err
 	}
 
@@ -187,7 +209,7 @@ func (pcc *ParsedCredentialCreationData) Verify(storedChallenge string, verifyUs
 
 	// Step 17. Check that the credentialId is not yet registered to any other user. If registration is
 	// requested for a credential that is already registered to a different user, the Relying Party SHOULD
-	// fail this registration ceremony, or it MAY decide to accept the registration, e.g. while deleting
+	// fail this registration ceremony, or it MAY decide to accept the registration, i.e. while deleting
 	// the older registration.
 
 	// TODO: We can't support this in the code's current form, the Relying Party would need to check for this
@@ -210,14 +232,14 @@ func (pcc *ParsedCredentialCreationData) Verify(storedChallenge string, verifyUs
 //
 // 1. Check that the Session Data's AuthenticationExtensions has been provided and if it hasn't return an error.
 // 2. Check that the AuthenticationExtensionsClientOutputs contains the extensions output and return an empty string if it doesn't.
-// 3. Check that the Credential AttestationType is `fido-u2f` and return an empty string if it isn't.
+// 3. Check that the Credential AttestationFormat is `fido-u2f` and return an empty string if it isn't.
 // 4. Check that the AuthenticationExtensionsClientOutputs contains the appid key and if it doesn't return an empty string.
 // 5. Check that the AuthenticationExtensionsClientOutputs appid is a bool and if it isn't return an error.
 // 6. Check that the appid output is true and if it isn't return an empty string.
 // 7. Check that the Session Data has an appid extension defined and if it doesn't return an error.
 // 8. Check that the appid extension in Session Data is a string and if it isn't return an error.
 // 9. Return the appid extension value from the Session data.
-func (ppkc ParsedPublicKeyCredential) GetAppID(authExt AuthenticationExtensions, credentialAttestationType string) (appID string, err error) {
+func (ppkc ParsedPublicKeyCredential) GetAppID(authExt AuthenticationExtensions, credentialAttestationFormat string) (appID string, err error) {
 	var (
 		value, clientValue interface{}
 		enableAppID, ok    bool
@@ -231,9 +253,9 @@ func (ppkc ParsedPublicKeyCredential) GetAppID(authExt AuthenticationExtensions,
 		return "", nil
 	}
 
-	// If the credential does not have the correct attestation type it is assumed to NOT be a fido-u2f credential.
+	// If the credential is not in the fido-u2f attestation FORMAT it is assumed to NOT be a fido-u2f credential.
 	// https://www.w3.org/TR/webauthn/#sctn-fido-u2f-attestation
-	if credentialAttestationType != CredentialTypeFIDOU2F {
+	if credentialAttestationFormat != string(AttestationFormatFIDOUniversalSecondFactor) {
 		return "", nil
 	}
 
@@ -259,7 +281,3 @@ func (ppkc ParsedPublicKeyCredential) GetAppID(authExt AuthenticationExtensions,
 
 	return appID, nil
 }
-
-const (
-	CredentialTypeFIDOU2F = "fido-u2f"
-)

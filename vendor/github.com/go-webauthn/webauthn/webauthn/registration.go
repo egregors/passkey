@@ -4,19 +4,16 @@ import (
 	"bytes"
 	"fmt"
 	"net/http"
-	"net/url"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/go-webauthn/webauthn/protocol"
-	"github.com/go-webauthn/webauthn/protocol/webauthncose"
 )
 
-// BEGIN REGISTRATION
-// These objects help us create the CredentialCreationOptions
-// that will be passed to the authenticator via the user client.
-
-// RegistrationOption describes a function which modifies the registration
-// [*protocol.PublicKeyCredentialCreationOptions] values.
+// RegistrationOption is a functional option that modifies the [protocol.PublicKeyCredentialCreationOptions] sent
+// to the client during a registration ceremony. Use the With* functions in this package (i.e.
+// [WithConveyancePreference], [WithExclusions], [WithAuthenticatorSelection]) to create registration options.
 type RegistrationOption func(*protocol.PublicKeyCredentialCreationOptions)
 
 // BeginRegistration generates a new set of registration data to be sent to the client and authenticator. To set a
@@ -32,12 +29,14 @@ func (webauthn *WebAuthn) BeginMediatedRegistration(user User, mediation protoco
 		return nil, nil, fmt.Errorf(errFmtConfigValidate, err)
 	}
 
-	challenge, err := protocol.CreateChallenge()
-	if err != nil {
+	var (
+		challenge    protocol.URLEncodedBase64
+		entityUserID any
+	)
+
+	if challenge, err = protocol.CreateChallenge(); err != nil {
 		return nil, nil, err
 	}
-
-	var entityUserID any
 
 	if webauthn.Config.EncodeUserIDAsString {
 		entityUserID = string(user.WebAuthnID())
@@ -80,12 +79,16 @@ func (webauthn *WebAuthn) BeginMediatedRegistration(user User, mediation protoco
 
 	if len(creation.Response.RelyingParty.ID) == 0 {
 		return nil, nil, fmt.Errorf("error generating credential creation: the relying party id must be provided via the configuration or a functional option for a creation")
-	} else if _, err = url.Parse(creation.Response.RelyingParty.ID); err != nil {
-		return nil, nil, fmt.Errorf("error generating credential creation: the relying party id failed to validate as it's not a valid uri with error: %w", err)
+	} else if err = protocol.ValidateRPID(creation.Response.RelyingParty.ID); err != nil {
+		return nil, nil, fmt.Errorf("error generating credential creation: the relying party id failed to validate as it's not a valid domain string with error: %w", err)
 	}
 
 	if len(creation.Response.RelyingParty.Name) == 0 {
 		return nil, nil, fmt.Errorf("error generating credential creation: the relying party display name must be provided via the configuration or a functional option for a creation")
+	}
+
+	if len(creation.Response.Challenge) < protocol.MinimumChallengeLength {
+		return nil, nil, fmt.Errorf("error generating credential creation: the challenge must be at least 16 bytes")
 	}
 
 	if creation.Response.Timeout == 0 {
@@ -98,7 +101,7 @@ func (webauthn *WebAuthn) BeginMediatedRegistration(user User, mediation protoco
 	}
 
 	session = &SessionData{
-		Challenge:        challenge.String(),
+		Challenge:        creation.Response.Challenge.String(),
 		RelyingPartyID:   creation.Response.RelyingParty.ID,
 		UserID:           user.WebAuthnID(),
 		UserVerification: creation.Response.AuthenticatorSelection.UserVerification,
@@ -111,105 +114,6 @@ func (webauthn *WebAuthn) BeginMediatedRegistration(user User, mediation protoco
 	}
 
 	return creation, session, nil
-}
-
-// WithCredentialParameters adjusts the credential parameters in the registration options.
-func WithCredentialParameters(credentialParams []protocol.CredentialParameter) RegistrationOption {
-	return func(cco *protocol.PublicKeyCredentialCreationOptions) {
-		cco.Parameters = credentialParams
-	}
-}
-
-// WithExclusions adjusts the non-default parameters regarding credentials to exclude from registration.
-func WithExclusions(excludeList []protocol.CredentialDescriptor) RegistrationOption {
-	return func(cco *protocol.PublicKeyCredentialCreationOptions) {
-		cco.CredentialExcludeList = excludeList
-	}
-}
-
-// WithAuthenticatorSelection adjusts the non-default parameters regarding the authenticator to select during
-// registration.
-func WithAuthenticatorSelection(authenticatorSelection protocol.AuthenticatorSelection) RegistrationOption {
-	return func(cco *protocol.PublicKeyCredentialCreationOptions) {
-		cco.AuthenticatorSelection = authenticatorSelection
-	}
-}
-
-// WithResidentKeyRequirement sets both the resident key and require resident key protocol options.
-func WithResidentKeyRequirement(requirement protocol.ResidentKeyRequirement) RegistrationOption {
-	return func(cco *protocol.PublicKeyCredentialCreationOptions) {
-		cco.AuthenticatorSelection.ResidentKey = requirement
-
-		switch requirement {
-		case protocol.ResidentKeyRequirementRequired:
-			cco.AuthenticatorSelection.RequireResidentKey = protocol.ResidentKeyRequired()
-		default:
-			cco.AuthenticatorSelection.RequireResidentKey = protocol.ResidentKeyNotRequired()
-		}
-	}
-}
-
-// WithPublicKeyCredentialHints adjusts the non-default hints for credential types to select during registration.
-//
-// WebAuthn Level 3.
-func WithPublicKeyCredentialHints(hints []protocol.PublicKeyCredentialHints) RegistrationOption {
-	return func(cco *protocol.PublicKeyCredentialCreationOptions) {
-		cco.Hints = hints
-	}
-}
-
-// WithConveyancePreference adjusts the non-default parameters regarding whether the authenticator should attest to the
-// credential.
-func WithConveyancePreference(preference protocol.ConveyancePreference) RegistrationOption {
-	return func(cco *protocol.PublicKeyCredentialCreationOptions) {
-		cco.Attestation = preference
-	}
-}
-
-// WithAttestationFormats adjusts the non-default formats for credential types to select during registration.
-//
-// WebAuthn Level 3.
-func WithAttestationFormats(formats []protocol.AttestationFormat) RegistrationOption {
-	return func(cco *protocol.PublicKeyCredentialCreationOptions) {
-		cco.AttestationFormats = formats
-	}
-}
-
-// WithExtensions adjusts the extension parameter in the registration options.
-func WithExtensions(extension protocol.AuthenticationExtensions) RegistrationOption {
-	return func(cco *protocol.PublicKeyCredentialCreationOptions) {
-		cco.Extensions = extension
-	}
-}
-
-// WithAppIdExcludeExtension automatically includes the specified appid if the CredentialExcludeList contains a credential
-// with the type `fido-u2f`.
-func WithAppIdExcludeExtension(appid string) RegistrationOption {
-	return func(cco *protocol.PublicKeyCredentialCreationOptions) {
-		for _, credential := range cco.CredentialExcludeList {
-			if credential.AttestationType == protocol.CredentialTypeFIDOU2F {
-				if cco.Extensions == nil {
-					cco.Extensions = map[string]any{}
-				}
-
-				cco.Extensions[protocol.ExtensionAppIDExclude] = appid
-			}
-		}
-	}
-}
-
-// WithRegistrationRelyingPartyID sets the relying party id for the registration.
-func WithRegistrationRelyingPartyID(id string) RegistrationOption {
-	return func(cco *protocol.PublicKeyCredentialCreationOptions) {
-		cco.RelyingParty.ID = id
-	}
-}
-
-// WithRegistrationRelyingPartyName sets the relying party name for the registration.
-func WithRegistrationRelyingPartyName(name string) RegistrationOption {
-	return func(cco *protocol.PublicKeyCredentialCreationOptions) {
-		cco.RelyingParty.Name = name
-	}
 }
 
 // FinishRegistration takes the response from the authenticator and client and verify the credential against the user's
@@ -247,120 +151,80 @@ func (webauthn *WebAuthn) CreateCredential(user User, session SessionData, parse
 
 	var clientDataHash []byte
 
-	if clientDataHash, err = parsedResponse.Verify(session.Challenge, shouldVerifyUser, shouldVerifyUserPresence, webauthn.Config.RPID, webauthn.Config.RPOrigins, webauthn.Config.RPTopOrigins, webauthn.Config.RPTopOriginVerificationMode, webauthn.Config.MDS, session.CredParams); err != nil {
+	if clientDataHash, err = parsedResponse.Verify(session.Challenge, webauthn.Config.RPID, webauthn.Config.RPOrigins, webauthn.Config.RPTopOrigins, webauthn.Config.RPTopOriginVerificationMode, webauthn.Config.RPAllowCrossOrigin, shouldVerifyUser, shouldVerifyUserPresence, webauthn.Config.MDS, session.CredParams); err != nil {
 		return nil, err
 	}
 
-	return NewCredential(clientDataHash, parsedResponse)
+	if credential, err = NewCredential(clientDataHash, parsedResponse); err != nil {
+		return nil, err
+	}
+
+	if err = ValidateFilteredCredential(credential, webauthn.Config.Filtering); err != nil {
+		return nil, err
+	}
+
+	return credential, nil
 }
 
-// CredentialParametersDefault is the default [protocol.CredentialParameter] list.
-func CredentialParametersDefault() []protocol.CredentialParameter {
-	return []protocol.CredentialParameter{
-		{
-			Type:      protocol.PublicKeyCredentialType,
-			Algorithm: webauthncose.AlgES256,
-		},
-		{
-			Type:      protocol.PublicKeyCredentialType,
-			Algorithm: webauthncose.AlgES384,
-		},
-		{
-			Type:      protocol.PublicKeyCredentialType,
-			Algorithm: webauthncose.AlgES512,
-		},
-		{
-			Type:      protocol.PublicKeyCredentialType,
-			Algorithm: webauthncose.AlgRS256,
-		},
-		{
-			Type:      protocol.PublicKeyCredentialType,
-			Algorithm: webauthncose.AlgRS384,
-		},
-		{
-			Type:      protocol.PublicKeyCredentialType,
-			Algorithm: webauthncose.AlgRS512,
-		},
-		{
-			Type:      protocol.PublicKeyCredentialType,
-			Algorithm: webauthncose.AlgPS256,
-		},
-		{
-			Type:      protocol.PublicKeyCredentialType,
-			Algorithm: webauthncose.AlgPS384,
-		},
-		{
-			Type:      protocol.PublicKeyCredentialType,
-			Algorithm: webauthncose.AlgPS512,
-		},
-		{
-			Type:      protocol.PublicKeyCredentialType,
-			Algorithm: webauthncose.AlgEdDSA,
-		},
+// ValidateFilteredCredential applies the supplied [FilteringConfig] to a freshly-created [Credential]
+// and returns a non-nil error when the credential violates any configured filtering rule (backup-eligibility
+// prohibition, permitted-AAGUID allow-list, prohibited-AAGUID deny-list). A nil filtering argument is treated
+// as "no filtering" and the function returns nil.
+//
+// The zero AAGUID ([uuid.Nil]) is never excluded by the permitted list, preserving the documented
+// [FilteringConfig] contract for authenticators that report no AAGUID.
+//
+// This function is invoked automatically by [WebAuthn.CreateCredential] using the [Config.Filtering] value;
+// relying parties may also call it directly (e.g. to pre-validate a credential before persistence) with any
+// FilteringConfig value of their choosing.
+//
+// The credential argument must be non-nil.
+func ValidateFilteredCredential(credential *Credential, filtering *FilteringConfig) (err error) {
+	if filtering == nil {
+		return nil
 	}
-}
 
-// CredentialParametersRecommendedL3 is explicitly the Level 3 recommended [protocol.CredentialParameter] list.
-func CredentialParametersRecommendedL3() []protocol.CredentialParameter {
-	return []protocol.CredentialParameter{
-		{
-			Type:      protocol.PublicKeyCredentialType,
-			Algorithm: webauthncose.AlgEdDSA,
-		},
-		{
-			Type:      protocol.PublicKeyCredentialType,
-			Algorithm: webauthncose.AlgES256,
-		},
-		{
-			Type:      protocol.PublicKeyCredentialType,
-			Algorithm: webauthncose.AlgRS256,
-		},
+	if credential == nil {
+		return protocol.ErrBadRequest.WithInfo("Credential is nil")
 	}
-}
 
-// CredentialParametersExtendedL3 is the Level 3 recommended [protocol.CredentialParameter] list with all of the other
-// parameters supported by the library.
-func CredentialParametersExtendedL3() []protocol.CredentialParameter {
-	return []protocol.CredentialParameter{
-		{
-			Type:      protocol.PublicKeyCredentialType,
-			Algorithm: webauthncose.AlgEdDSA,
-		},
-		{
-			Type:      protocol.PublicKeyCredentialType,
-			Algorithm: webauthncose.AlgES256,
-		},
-		{
-			Type:      protocol.PublicKeyCredentialType,
-			Algorithm: webauthncose.AlgES384,
-		},
-		{
-			Type:      protocol.PublicKeyCredentialType,
-			Algorithm: webauthncose.AlgES512,
-		},
-		{
-			Type:      protocol.PublicKeyCredentialType,
-			Algorithm: webauthncose.AlgRS256,
-		},
-		{
-			Type:      protocol.PublicKeyCredentialType,
-			Algorithm: webauthncose.AlgRS384,
-		},
-		{
-			Type:      protocol.PublicKeyCredentialType,
-			Algorithm: webauthncose.AlgRS512,
-		},
-		{
-			Type:      protocol.PublicKeyCredentialType,
-			Algorithm: webauthncose.AlgPS256,
-		},
-		{
-			Type:      protocol.PublicKeyCredentialType,
-			Algorithm: webauthncose.AlgPS384,
-		},
-		{
-			Type:      protocol.PublicKeyCredentialType,
-			Algorithm: webauthncose.AlgPS512,
-		},
+	if filtering.ProhibitBackupEligibility && credential.Flags.BackupEligible {
+		return protocol.ErrPolicyRestriction.WithInfo("Credential is Backup Eligible")
 	}
+
+	var aaguid uuid.UUID
+
+	if err = aaguid.UnmarshalBinary(credential.Authenticator.AAGUID); err != nil {
+		return protocol.ErrBadRequest.WithInfo("The AAGUID of the credential is not a valid UUID")
+	}
+
+	if len(filtering.PermittedAAGUIDs) != 0 {
+		var success = false
+
+		if aaguid == uuid.Nil {
+			success = true
+		} else {
+			for _, permitted := range filtering.PermittedAAGUIDs {
+				if permitted == aaguid {
+					success = true
+
+					break
+				}
+			}
+		}
+
+		if !success {
+			return protocol.ErrPolicyRestriction.WithInfo("Credential has an AAGUID which is not permitted")
+		}
+	}
+
+	if len(filtering.ProhibitedAAGUIDs) != 0 {
+		for _, prohibited := range filtering.ProhibitedAAGUIDs {
+			if prohibited == aaguid {
+				return protocol.ErrPolicyRestriction.WithInfo("Credential has an AAGUID which is prohibited")
+			}
+		}
+	}
+
+	return nil
 }

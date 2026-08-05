@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -71,6 +72,26 @@ type AttestationObject struct {
 	// The byteform version of the authenticator data, used in part for signature validation.
 	RawAuthData []byte `json:"authData"`
 
+	// The format of the Attestation data.
+	Format string `json:"fmt"`
+
+	// The attestation statement data sent back if attestation is requested.
+	AttStatement map[string]any `json:"attStmt,omitempty"`
+
+	// Type is the attestation type as conveyed by the authenticator, one of the values defined by
+	// [metadata.AuthenticatorAttestationType] (i.e. "basic_full", "basic_surrogate", "attca", "anonca", "none").
+	// It is populated as a side-effect of a successful [AttestationObject.VerifyAttestation]; before that the field
+	// is empty. This field is excluded from serialization because the attestation object wire format does not carry
+	// this value; it is derived by the format-specific verifier.
+	Type string `json:"-"`
+}
+
+// NonCompoundAttestationObject is a subset of [AttestationObject] used within compound attestation statements. Each
+// sub-statement in a compound attestation has its own format and attestation statement but shares authenticator data
+// with the parent.
+//
+// Specification: §8.9. Compound Attestation Statement Format (https://www.w3.org/TR/webauthn-3/#sctn-compound-attestation)
+type NonCompoundAttestationObject struct {
 	// The format of the Attestation data.
 	Format string `json:"fmt"`
 
@@ -179,6 +200,8 @@ func (a *AttestationObject) VerifyAttestation(clientDataHash []byte, mds metadat
 			return ErrAttestationFormat.WithInfo("Attestation format none with attestation present")
 		}
 
+		a.Type = string(metadata.None)
+
 		return nil
 	}
 
@@ -201,8 +224,16 @@ func (a *AttestationObject) VerifyAttestation(clientDataHash []byte, mds metadat
 	// the attestation statement format fmt’s verification procedure given attStmt, authData and the hash of the serialized
 	// client data computed in step 7.
 	if attestationType, x5cs, err = handler(*a, clientDataHash, mds); err != nil {
-		return err.(*Error).WithInfo(attestationType)
+		var e *Error
+
+		if errors.As(err, &e) {
+			return e.WithInfo(attestationType)
+		}
+
+		return ErrInvalidAttestation.WithDetails(err.Error()).WithInfo(attestationType).WithError(err)
 	}
+
+	a.Type = attestationType
 
 	if len(a.AuthData.AttData.AAGUID) != 0 {
 		if aaguid, err = uuid.FromBytes(a.AuthData.AttData.AAGUID); err != nil {
@@ -214,7 +245,7 @@ func (a *AttestationObject) VerifyAttestation(clientDataHash []byte, mds metadat
 		return nil
 	}
 
-	if e := ValidateMetadata(context.Background(), mds, aaguid, attestationType, a.Format, x5cs); e != nil {
+	if e := ValidateMetadata(context.Background(), mds, aaguid, a.Type, a.Format, x5cs); e != nil {
 		return ErrInvalidAttestation.WithInfo(fmt.Sprintf("Error occurred validating metadata during attestation validation: %+v", e)).WithDetails(e.DevInfo).WithError(e)
 	}
 

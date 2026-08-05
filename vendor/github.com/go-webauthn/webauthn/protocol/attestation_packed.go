@@ -21,19 +21,20 @@ func init() {
 // The syntax of a Packed Attestation statement is defined by the following CDDL:
 //
 // $$attStmtType //= (
-//                       fmt: "packed",
-//                       attStmt: packedStmtFormat
-//                   )
 //
-// packedStmtFormat = {
-//                        alg: COSEAlgorithmIdentifier,
-//                        sig: bytes,
-//                        x5c: [ attestnCert: bytes, * (caCert: bytes) ]
-//                    } //
-//                    {
-//                        alg: COSEAlgorithmIdentifier
-//                        sig: bytes,
-//                    }
+//	    fmt: "packed",
+//	    attStmt: packedStmtFormat
+//	)
+//
+//	packedStmtFormat = {
+//	                       alg: COSEAlgorithmIdentifier,
+//	                       sig: bytes,
+//	                       x5c: [ attestnCert: bytes, * (caCert: bytes) ]
+//	                   } //
+//	                   {
+//	                       alg: COSEAlgorithmIdentifier
+//	                       sig: bytes,
+//	                   }
 //
 // Specification: §8.2. Packed Attestation Statement Format
 //
@@ -78,6 +79,8 @@ func attestationFormatValidationHandlerPacked(att AttestationObject, clientDataH
 }
 
 // Handle the attestation steps laid out in the basic format.
+//
+//nolint:gocyclo
 func handleBasicAttestation(sig, clientDataHash, authData, aaguid []byte, alg int64, x5c []any, _ metadata.Provider) (attestationType string, x5cs []any, err error) {
 	// Step 2.1. Verify that sig is a valid signature over the concatenation of authenticatorData
 	// and clientDataHash using the attestation public key in attestnCert with the algorithm specified in alg.
@@ -95,7 +98,7 @@ func handleBasicAttestation(sig, clientDataHash, authData, aaguid []byte, alg in
 		}
 
 		if cert.NotBefore.After(time.Now()) || cert.NotAfter.Before(time.Now()) {
-			return "", x5c, ErrAttestationFormat.WithDetails("Cert in chain not time valid")
+			return "", x5c, ErrAttestationFormat.WithDetails("Cert in chain is either no longer valid or not yet valid")
 		}
 
 		if i == 0 {
@@ -126,16 +129,13 @@ func handleBasicAttestation(sig, clientDataHash, authData, aaguid []byte, alg in
 	// Step 2.2.2 (from §8.2.1) Subject field MUST be set to:
 	// 	Subject-C
 	// 	ISO 3166 code specifying the country where the Authenticator vendor is incorporated (PrintableString).
-
-	//  TODO: Find a good, usable, country code library. For now, check stringy-ness
-	subjectString := strings.Join(attestnCert.Subject.Country, "")
-	if subjectString == "" {
+	if len(attestnCert.Subject.Country) != 1 || !isISO3166Alpha2(attestnCert.Subject.Country[0]) {
 		return "", x5c, ErrAttestationCertificate.WithDetails("Attestation Certificate Country Code is invalid")
 	}
 
 	// 	Subject-O
 	// 	Legal name of the Authenticator vendor (UTF8String).
-	subjectString = strings.Join(attestnCert.Subject.Organization, "")
+	subjectString := strings.Join(attestnCert.Subject.Organization, "")
 	if subjectString == "" {
 		return "", x5c, ErrAttestationCertificate.WithDetails("Attestation Certificate Organization is invalid")
 	}

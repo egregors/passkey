@@ -45,9 +45,16 @@ var (
 	ErrNotInitialized = errors.New("metadata: not initialized")
 )
 
+// PublicKeyCredentialParameters describes a credential type and algorithm pair per the WebAuthn specification. It is
+// used in [AuthenticatorGetInfo] to describe the algorithms supported by an authenticator.
+//
+// See: https://www.w3.org/TR/webauthn-3/#dictdef-publickeycredentialparameters
 type PublicKeyCredentialParameters struct {
-	Type string                               `json:"type"`
-	Alg  webauthncose.COSEAlgorithmIdentifier `json:"alg"`
+	// Type is the credential type, typically "public-key".
+	Type string `json:"type"`
+
+	// Alg is the COSE algorithm identifier.
+	Alg webauthncose.COSEAlgorithmIdentifier `json:"alg"`
 }
 
 type AuthenticatorAttestationTypes []AuthenticatorAttestationType
@@ -62,12 +69,14 @@ func (t AuthenticatorAttestationTypes) HasBasicFull() bool {
 	return false
 }
 
-// AuthenticatorAttestationType - The ATTESTATION constants are 16 bit long integers indicating the specific attestation that authenticator supports.
-// Each constant has a case-sensitive string representation (in quotes), which is used in the authoritative metadata for FIDO authenticators.
+// AuthenticatorAttestationType represents the attestation type supported by an authenticator. Each constant has a
+// case-sensitive string representation used in the authoritative metadata for FIDO authenticators.
+//
+// See: https://fidoalliance.org/specs/common-specs/fido-registry-v2.2-ps-20220523.html#authenticator-attestation-types
 type AuthenticatorAttestationType string
 
 const (
-	// BasicFull - Indicates full basic attestation, based on an attestation private key shared among a class of authenticators (e.g. same model). Authenticators must provide its attestation signature during the registration process for the same reason. The attestation trust anchor is shared with FIDO Servers out of band (as part of the Metadata). This sharing process should be done according to [UAFMetadataService].
+	// BasicFull - Indicates full basic attestation, based on an attestation private key shared among a class of authenticators (i.e. same model). Authenticators must provide its attestation signature during the registration process for the same reason. The attestation trust anchor is shared with FIDO Servers out of band (as part of the Metadata). This sharing process should be done according to [UAFMetadataService].
 	BasicFull AuthenticatorAttestationType = "basic_full"
 
 	// BasicSurrogate - Just syntactically a Basic Attestation. The attestation object self-signed, i.e. it is signed using the UAuth.priv key, i.e. the key corresponding to the UAuth.pub key included in the attestation object. As a consequence it does not provide a cryptographic proof of the security characteristics. But it is the best thing we can do if the authenticator is not able to have an attestation private key.
@@ -79,32 +88,57 @@ const (
 	// AttCA - Indicates PrivacyCA attestation as defined in [TCG-CMCProfile-AIKCertEnroll]. Support for this attestation type is optional at this time. It might be required by FIDO Certification.
 	AttCA AuthenticatorAttestationType = "attca"
 
-	// AnonCA In this case, the authenticator uses an Anonymization CA which dynamically generates per-credential attestation certificates such that the attestation statements presented to Relying Parties do not provide uniquely identifiable information, e.g., that might be used for tracking purposes. The applicable [WebAuthn] attestation formats "fmt" are Google SafetyNet Attestation "android-safetynet", Android Keystore Attestation "android-key", Apple Anonymous Attestation "apple", and Apple Application Attestation "apple-appattest".
+	// AnonCA In this case, the authenticator uses an Anonymization CA which dynamically generates per-credential attestation certificates such that the attestation statements presented to Relying Parties do not provide uniquely identifiable information, i.e., that might be used for tracking purposes. The applicable [WebAuthn] attestation formats "fmt" are Google SafetyNet Attestation "android-safetynet", Android Keystore Attestation "android-key", Apple Anonymous Attestation "apple", and Apple Application Attestation "apple-appattest".
 	AnonCA AuthenticatorAttestationType = "anonca"
 
 	// None - Indicates absence of attestation.
 	None AuthenticatorAttestationType = "none"
 )
 
+// KeyScope represents the scope of keys generated and maintained by an authenticator model.
+//
+// See: https://fidoalliance.org/specs/mds/fido-metadata-statement-v3.1-ps-20250521.html#sctn-md-keys
 type KeyScope string
 
 const (
-	KeyScopeNone                   KeyScope = ""
-	PublicKeyCredentialSource      KeyScope = "public-key-credential-source" //nolint:gosec
-	DeviceSupplementalPublicKeys   KeyScope = "device-spk"
+	// KeyScopeNone is the zero value indicating the field is absent (defaults to PublicKeyCredentialSource).
+	KeyScopeNone KeyScope = ""
+
+	// PublicKeyCredentialSource indicates the authenticator only generates/maintains main FIDO credentials.
+	PublicKeyCredentialSource KeyScope = "public-key-credential-source" //nolint:gosec
+
+	// DeviceSupplementalPublicKeys indicates the authenticator only generates/maintains device-scoped supplemental
+	// public keys (SPK extension).
+	DeviceSupplementalPublicKeys KeyScope = "device-spk"
+
+	// ProviderSupplementalPublicKeys indicates the authenticator only generates/maintains provider-scoped supplemental
+	// public keys (SPK extension).
 	ProviderSupplementalPublicKeys KeyScope = "provider-spk"
 )
 
+// MultiDeviceCredentialSupport describes whether an authenticator supports multi-device credentials (passkeys).
+//
+// See: https://fidoalliance.org/specs/mds/fido-metadata-statement-v3.1-ps-20250521.html#sctn-md-keys
 type MultiDeviceCredentialSupport string
 
 const (
+	// MultiDeviceCredentialUnsupported indicates all private keys are designed to stay within the authenticator
+	// boundary. This is the implicit default when the field is absent.
 	MultiDeviceCredentialUnsupported MultiDeviceCredentialSupport = "unsupported"
-	MultiDeviceCredentialExplicit    MultiDeviceCredentialSupport = "explicit"
-	MultiDeviceCredentialImplicit    MultiDeviceCredentialSupport = "implicit"
+
+	// MultiDeviceCredentialExplicit indicates the authenticator explicitly marks keys as multi-device or single-device
+	// via the Backup Eligibility flag.
+	MultiDeviceCredentialExplicit MultiDeviceCredentialSupport = "explicit"
+
+	// MultiDeviceCredentialImplicit indicates all private keys relating to Public Key Credential Source may be backed
+	// up.
+	MultiDeviceCredentialImplicit MultiDeviceCredentialSupport = "implicit"
 )
 
-// AuthenticatorStatus - This enumeration describes the status of an authenticator model as identified by its AAID and potentially some additional information (such as a specific attestation key).
-// https://fidoalliance.org/specs/mds/fido-metadata-service-v3.1-ps-20250521.html#sctn-authnr-stat
+// AuthenticatorStatus describes the status of an authenticator model as identified by its AAID/AAGUID and potentially
+// some additional information (such as a specific attestation key).
+//
+// See: https://fidoalliance.org/specs/mds/fido-metadata-service-v3.1.1-rd-20251016.html#sctn-authnr-stat
 type AuthenticatorStatus string
 
 const (
@@ -121,7 +155,7 @@ const (
 	// AttestationKeyCompromise - Indicates that an attestation key for this authenticator is known to be compromised. Additional data should be supplied, including the key identifier and the date of compromise, if known.
 	AttestationKeyCompromise AuthenticatorStatus = "ATTESTATION_KEY_COMPROMISE"
 
-	// UserKeyRemoteCompromise - This authenticator has identified weaknesses that allow registered keys to be compromised and should not be trusted. This would include both, e.g. weak entropy that causes predictable keys to be generated or side channels that allow keys or signatures to be forged, guessed or extracted.
+	// UserKeyRemoteCompromise - This authenticator has identified weaknesses that allow registered keys to be compromised and should not be trusted. This would include both, i.e. weak entropy that causes predictable keys to be generated or side channels that allow keys or signatures to be forged, guessed or extracted.
 	UserKeyRemoteCompromise AuthenticatorStatus = "USER_KEY_REMOTE_COMPROMISE"
 
 	// UserKeyPhysicalCompromise - This authenticator has known weaknesses in its key protection mechanism(s) that allow user keys to be extracted by an adversary in physical possession of the device.
@@ -129,6 +163,12 @@ const (
 
 	// UpdateAvailable - A software or firmware update is available for the device. Additional data should be supplied including a URL where users can obtain an update and the date the update was published.
 	UpdateAvailable AuthenticatorStatus = "UPDATE_AVAILABLE"
+
+	// Retired - The authenticator vendor has decided to retire the product, and this authenticator should not be
+	// accepted any longer.
+	//
+	// See: https://fidoalliance.org/specs/mds/fido-metadata-service-v3.1.1-rd-20251016.html#dom-authenticatorstatus-retired
+	Retired AuthenticatorStatus = "RETIRED"
 
 	// Revoked - The FIDO Alliance has determined that this authenticator should not be trusted for any reason, for example if it is known to be a fraudulent product or contain a deliberate backdoor.
 	Revoked AuthenticatorStatus = "REVOKED"
@@ -173,6 +213,7 @@ var defaultUndesiredAuthenticatorStatus = [...]AuthenticatorStatus{
 	UserVerificationBypass,
 	UserKeyRemoteCompromise,
 	UserKeyPhysicalCompromise,
+	Retired,
 	Revoked,
 }
 
@@ -205,6 +246,9 @@ func IsUndesiredAuthenticatorStatusMap(status AuthenticatorStatus, values map[Au
 	return ok
 }
 
+// AuthenticationAlgorithm represents the authentication algorithm supported by an authenticator.
+//
+// See: https://fidoalliance.org/specs/common-specs/fido-registry-v2.2-ps-20220523.html#authentication-algorithms
 type AuthenticationAlgorithm string
 
 const (
@@ -324,6 +368,9 @@ func AlgKeyMatch(key algKeyCose, algs []AuthenticationAlgorithm) bool {
 	return false
 }
 
+// PublicKeyAlgAndEncoding represents the public key format supported by an authenticator during registration.
+//
+// See: https://fidoalliance.org/specs/common-specs/fido-registry-v2.2-ps-20220523.html#public-key-representation-formats
 type PublicKeyAlgAndEncoding string
 
 const (
