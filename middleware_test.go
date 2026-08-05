@@ -231,6 +231,53 @@ func TestAuth(t *testing.T) {
 	}
 }
 
+func TestRedirectUnauthorized(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		target       url.URL
+		wantStatus   int
+		wantLocation string
+	}{
+		{
+			name:         "local path",
+			target:       url.URL{Path: "/login", RawQuery: "from=account"},
+			wantStatus:   http.StatusSeeOther,
+			wantLocation: "/login?from=account",
+		},
+		{
+			name:       "absolute URL",
+			target:     url.URL{Scheme: "https", Host: "attacker.example", Path: "/login"},
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name:       "network path reference",
+			target:     url.URL{Path: "//attacker.example/login"},
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name:       "backslash path",
+			target:     url.URL{Path: `\\attacker.example/login`},
+			wantStatus: http.StatusUnauthorized,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, "/private", http.NoBody)
+
+			RedirectUnauthorized(tt.target)(w, r)
+
+			assert.Equal(t, tt.wantStatus, w.Code)
+			assert.Equal(t, tt.wantLocation, w.Header().Get("Location"))
+		})
+	}
+}
+
 func TestUserFromContext(t *testing.T) {
 	tests := []struct {
 		name      string

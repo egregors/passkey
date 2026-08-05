@@ -306,6 +306,10 @@ func (p *Passkey) setUserSessionCookie(w http.ResponseWriter, value string) {
 }
 
 func (p *Passkey) setSessionCookie(w http.ResponseWriter, name, value string, maxAge time.Duration) {
+	// Secure is enabled by default and can only be disabled explicitly with
+	// WithInsecureCookie for local development. HttpOnly and SameSite are
+	// initialized to secure values in setupCookieSettings.
+	//nolint:gosec // G124 cannot infer the secure defaults behind cookieSettings.
 	http.SetCookie(w, &http.Cookie{
 		Name:     name,
 		Value:    value,
@@ -332,11 +336,18 @@ func (p *Passkey) Logout(w http.ResponseWriter, r *http.Request) {
 
 // deleteSessionCookie deletes a cookie
 func (p *Passkey) deleteAuthSessionCookie(name string, w http.ResponseWriter) { //nolint:unparam // it's ok here
+	// Use the same scope and security attributes as the original cookie so the
+	// browser reliably expires that cookie instead of creating a second one.
+	//nolint:gosec // G124 cannot infer the secure defaults behind cookieSettings.
 	http.SetCookie(w, &http.Cookie{
-		Name:    name,
-		Value:   "",
-		Expires: time.Unix(0, 0),
-		MaxAge:  -1,
+		Name:     name,
+		Value:    "",
+		Path:     p.cookieSettings.Path,
+		Expires:  time.Unix(0, 0),
+		MaxAge:   -1,
+		Secure:   p.cookieSettings.Secure,
+		HttpOnly: p.cookieSettings.HttpOnly,
+		SameSite: p.cookieSettings.SameSite,
 	})
 }
 
