@@ -816,6 +816,27 @@ func TestPasskey_beginLogin(t *testing.T) {
 	}
 }
 
+func TestPasskey_deleteAuthSessionCookie(t *testing.T) {
+	t.Parallel()
+
+	p := &Passkey{}
+	p.setupCookieSettings()
+	w := httptest.NewRecorder()
+
+	p.deleteAuthSessionCookie(p.cookieSettings.userSessionName, w)
+
+	cookies := w.Result().Cookies()
+	require.Len(t, cookies, 1)
+
+	cookie := cookies[0]
+	assert.Equal(t, p.cookieSettings.userSessionName, cookie.Name)
+	assert.Equal(t, p.cookieSettings.Path, cookie.Path)
+	assert.Equal(t, -1, cookie.MaxAge)
+	assert.True(t, cookie.Secure)
+	assert.True(t, cookie.HttpOnly)
+	assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
+}
+
 func TestPasskey_finishLogin(t *testing.T) {
 	log.Info.Off()
 	log.Debg.Off()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -20,7 +21,7 @@ import (
 //
 // See: https://www.w3.org/TR/webauthn/#typedefdef-publickeycredentialjson
 type AuthenticatorAttestationResponse struct {
-	// The byte slice of clientDataJSON, which becomes CollectedClientData
+	// The byte slice of clientDataJSON, which becomes CollectedClientData.
 	AuthenticatorResponse
 
 	Transports []string `json:"transports,omitempty"`
@@ -65,10 +66,10 @@ type ParsedAttestationResponse struct {
 //
 // Specification: §6.5. Attestation (https://www.w3.org/TR/webauthn/#sctn-attestation)
 type AttestationObject struct {
-	// The authenticator data, including the newly created public key. See [AuthenticatorData] for more info
+	// The authenticator data, including the newly created public key. See [AuthenticatorData] for more info.
 	AuthData AuthenticatorData
 
-	// The byteform version of the authenticator data, used in part for signature validation
+	// The byteform version of the authenticator data, used in part for signature validation.
 	RawAuthData []byte `json:"authData"`
 
 	// The format of the Attestation data.
@@ -76,14 +77,34 @@ type AttestationObject struct {
 
 	// The attestation statement data sent back if attestation is requested.
 	AttStatement map[string]any `json:"attStmt,omitempty"`
+
+	// Type is the attestation type as conveyed by the authenticator, one of the values defined by
+	// [metadata.AuthenticatorAttestationType] (i.e. "basic_full", "basic_surrogate", "attca", "anonca", "none").
+	// It is populated as a side-effect of a successful [AttestationObject.VerifyAttestation]; before that the field
+	// is empty. This field is excluded from serialization because the attestation object wire format does not carry
+	// this value; it is derived by the format-specific verifier.
+	Type string `json:"-"`
 }
 
-type attestationFormatValidationHandler func(AttestationObject, []byte, metadata.Provider) (string, []any, error)
+// NonCompoundAttestationObject is a subset of [AttestationObject] used within compound attestation statements. Each
+// sub-statement in a compound attestation has its own format and attestation statement but shares authenticator data
+// with the parent.
+//
+// Specification: §8.9. Compound Attestation Statement Format (https://www.w3.org/TR/webauthn-3/#sctn-compound-attestation)
+type NonCompoundAttestationObject struct {
+	// The format of the Attestation data.
+	Format string `json:"fmt"`
+
+	// The attestation statement data sent back if attestation is requested.
+	AttStatement map[string]any `json:"attStmt,omitempty"`
+}
+
+type attestationFormatValidationHandler func(att AttestationObject, clientDataHash []byte, mds metadata.Provider) (attestationType string, x5cs []any, err error)
 
 var attestationRegistry = make(map[AttestationFormat]attestationFormatValidationHandler)
 
 // RegisterAttestationFormat is a method to register attestation formats with the library. Generally using one of the
-// locally registered attestation formats is sufficient.
+// locally registered attestation formats is enough.
 func RegisterAttestationFormat(format AttestationFormat, handler attestationFormatValidationHandler) {
 	attestationRegistry[format] = handler
 }
@@ -138,17 +159,20 @@ func (a *AttestationObject) Verify(relyingPartyID string, clientDataHash []byte,
 
 	// Step 16. Verify that the "alg" parameter in the credential public key in
 	// authData matches the alg attribute of one of the items in options.pubKeyCredParams.
-	pk := webauthncose.PublicKeyData{}
+	var pk webauthncose.PublicKeyData
 	if err = webauthncbor.Unmarshal(a.AuthData.AttData.CredentialPublicKey, &pk); err != nil {
 		return err
 	}
+
 	found := false
+
 	for _, credParam := range credParams {
 		if int(pk.Algorithm) == int(credParam.Algorithm) {
 			found = true
 			break
 		}
 	}
+
 	if !found {
 		return ErrAttestationFormat.WithInfo("Credential public key algorithm not supported")
 	}
@@ -176,6 +200,8 @@ func (a *AttestationObject) VerifyAttestation(clientDataHash []byte, mds metadat
 			return ErrAttestationFormat.WithInfo("Attestation format none with attestation present")
 		}
 
+		a.Type = string(metadata.None)
+
 		return nil
 	}
 
@@ -198,8 +224,16 @@ func (a *AttestationObject) VerifyAttestation(clientDataHash []byte, mds metadat
 	// the attestation statement format fmt’s verification procedure given attStmt, authData and the hash of the serialized
 	// client data computed in step 7.
 	if attestationType, x5cs, err = handler(*a, clientDataHash, mds); err != nil {
-		return err.(*Error).WithInfo(attestationType)
+		var e *Error
+
+		if errors.As(err, &e) {
+			return e.WithInfo(attestationType)
+		}
+
+		return ErrInvalidAttestation.WithDetails(err.Error()).WithInfo(attestationType).WithError(err)
 	}
+
+	a.Type = attestationType
 
 	if len(a.AuthData.AttData.AAGUID) != 0 {
 		if aaguid, err = uuid.FromBytes(a.AuthData.AttData.AAGUID); err != nil {
@@ -211,10 +245,8 @@ func (a *AttestationObject) VerifyAttestation(clientDataHash []byte, mds metadat
 		return nil
 	}
 
-	var protoErr *Error
-
-	if protoErr = ValidateMetadata(context.Background(), mds, aaguid, attestationType, x5cs); protoErr != nil {
-		return ErrInvalidAttestation.WithInfo(fmt.Sprintf("Error occurred validating metadata during attestation validation: %+v", protoErr)).WithDetails(protoErr.DevInfo).WithError(protoErr)
+	if e := ValidateMetadata(context.Background(), mds, aaguid, a.Type, a.Format, x5cs); e != nil {
+		return ErrInvalidAttestation.WithInfo(fmt.Sprintf("Error occurred validating metadata during attestation validation: %+v", e)).WithDetails(e.DevInfo).WithError(e)
 	}
 
 	return nil

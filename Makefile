@@ -2,12 +2,23 @@ PROJECT_NAME := "passkey"
 PKG := "github.com/egregors/$(PROJECT_NAME)"
 PKG_LIST := $(shell go list ${PKG}/... | grep -v /vendor/)
 GO_FILES := $(shell find . -name '*.go' | grep -v /vendor/ | grep -v _test.go)
+GOLANGCI_LINT_VERSION := $(shell tr -d '[:space:]' < .golangci-lint-version)
+GOLANGCI_LINT_VERSION_NUMBER := $(patsubst v%,%,$(GOLANGCI_LINT_VERSION))
 
 ## Common tasks
 
 .PHONY: lint
 lint: ## Lint the files
+	@command -v golangci-lint >/dev/null || { echo "golangci-lint is not installed; run 'make install-lint'"; exit 1; }
+	@test "$$(golangci-lint version --short)" = "$(GOLANGCI_LINT_VERSION_NUMBER)" || { \
+		echo "golangci-lint $(GOLANGCI_LINT_VERSION_NUMBER) is required; run 'make install-lint'"; \
+		exit 1; \
+	}
 	golangci-lint run ./... --timeout 1m -c .golangci.yml
+
+.PHONY: install-lint
+install-lint: ## Install the pinned golangci-lint version
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 
 .PHONY: test
 test: ## Run unittests

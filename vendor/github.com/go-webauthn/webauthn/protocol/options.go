@@ -1,14 +1,20 @@
 package protocol
 
-import (
-	"github.com/go-webauthn/webauthn/protocol/webauthncose"
-)
-
+// CredentialCreation is the top-level request object for credential registration. It wraps
+// [PublicKeyCredentialCreationOptions] and an optional mediation requirement. This is the object that should be
+// serialized and sent to the client to initiate the navigator.credentials.create() call.
+//
+// Specification: §5.4. Options for Credential Creation (https://www.w3.org/TR/webauthn/#dictionary-makecredentialoptions)
 type CredentialCreation struct {
 	Response  PublicKeyCredentialCreationOptions `json:"publicKey"`
 	Mediation CredentialMediationRequirement     `json:"mediation,omitempty"`
 }
 
+// CredentialAssertion is the top-level request object for credential assertion (login). It wraps
+// [PublicKeyCredentialRequestOptions] and an optional mediation requirement. This is the object that should be
+// serialized and sent to the client to initiate the navigator.credentials.get() call.
+//
+// Specification: §5.5. Options for Assertion Generation (https://www.w3.org/TR/webauthn/#dictionary-assertion-options)
 type CredentialAssertion struct {
 	Response  PublicKeyCredentialRequestOptions `json:"publicKey"`
 	Mediation CredentialMediationRequirement    `json:"mediation,omitempty"`
@@ -69,15 +75,22 @@ type CredentialDescriptor struct {
 	// The authenticator transports that can be used.
 	Transport []AuthenticatorTransport `json:"transports,omitempty"`
 
-	// The AttestationType from the Credential. Used internally only.
+	// AttestationType is the attestation type from the originating Credential (one of "basic_full",
+	// "basic_surrogate", "attca", "anonca", "ecdaa", "none"). Used internally only; not serialized.
 	AttestationType string `json:"-"`
+
+	// AttestationFormat is the attestation statement format from the originating Credential (one of "packed",
+	// "tpm", "android-key", "android-safetynet", "fido-u2f", "apple", "compound", "none"). Used internally only;
+	// not serialized. Prior releases overloaded [CredentialDescriptor.AttestationType] with this value; callers
+	// that construct descriptors directly should populate this field instead.
+	AttestationFormat string `json:"-"`
 }
 
-// CredentialParameter is the credential type and algorithm
-// that the relying party wants the authenticator to create.
-type CredentialParameter struct {
-	Type      CredentialType                       `json:"type"`
-	Algorithm webauthncose.COSEAlgorithmIdentifier `json:"alg"`
+func (c CredentialDescriptor) SignalUnknownCredential(rpid string) *SignalUnknownCredential {
+	return &SignalUnknownCredential{
+		CredentialID: c.CredentialID,
+		RPID:         rpid,
+	}
 }
 
 // CredentialType represents the PublicKeyCredentialType IDL and is used with the CredentialDescriptor IDL.
@@ -148,7 +161,7 @@ const (
 	// This is the default value.
 	//
 	// Specification: §5.4.7. Attestation Conveyance Preference Enumeration (https://www.w3.org/TR/webauthn/#dom-attestationconveyancepreference-none)
-	PreferNoAttestation ConveyancePreference = "none"
+	PreferNoAttestation ConveyancePreference = none
 
 	// PreferIndirectAttestation is a ConveyancePreference value.
 	//
@@ -196,7 +209,7 @@ type AttestationFormat string
 const (
 	// AttestationFormatPacked is the "packed" attestation statement format is a WebAuthn-optimized format for
 	// attestation. It uses a very compact but still extensible encoding method. This format is implementable by
-	// authenticators with limited resources (e.g., secure elements).
+	// authenticators with limited resources (i.e., secure elements).
 	AttestationFormatPacked AttestationFormat = "packed"
 
 	// AttestationFormatTPM is the TPM attestation statement format returns an attestation statement in the same format
@@ -219,9 +232,12 @@ const (
 	// authenticators.
 	AttestationFormatApple AttestationFormat = "apple"
 
+	// AttestationFormatCompound is used to pass multiple, self-contained attestation statements in a single ceremony.
+	AttestationFormatCompound AttestationFormat = "compound"
+
 	// AttestationFormatNone is the attestation statement format that is used to replace any authenticator-provided
 	// attestation statement when a WebAuthn Relying Party indicates it does not wish to receive attestation information.
-	AttestationFormatNone AttestationFormat = "none"
+	AttestationFormatNone AttestationFormat = none
 )
 
 type PublicKeyCredentialHints string
@@ -263,16 +279,27 @@ func (a *PublicKeyCredentialRequestOptions) GetAllowedCredentialIDs() [][]byte {
 	return allowedCredentialIDs
 }
 
+// Extensions is a generic type for WebAuthn extensions. The actual contents are defined by each individual extension.
+//
+// Specification: §9. WebAuthn Extensions (https://www.w3.org/TR/webauthn/#extensions)
 type Extensions any
 
+// ServerResponse is a response from a FIDO conformance server.
 type ServerResponse struct {
-	Status  ServerResponseStatus `json:"status"`
-	Message string               `json:"errorMessage"`
+	// Status indicates whether the operation succeeded or failed.
+	Status ServerResponseStatus `json:"status"`
+
+	// Message provides additional details about an error if Status is "failed".
+	Message string `json:"errorMessage"`
 }
 
+// ServerResponseStatus is the status code returned by a FIDO conformance server.
 type ServerResponseStatus string
 
 const (
-	StatusOk     ServerResponseStatus = "ok"
+	// StatusOk indicates the server operation was successful.
+	StatusOk ServerResponseStatus = "ok"
+
+	// StatusFailed indicates the server operation failed.
 	StatusFailed ServerResponseStatus = "failed"
 )

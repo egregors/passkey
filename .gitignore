@@ -24,5 +24,8 @@ go.work.sum
 # JB
 .idea/
 
+# Serena
+.serena/
+
 # self-signed certs
 /_example/certs

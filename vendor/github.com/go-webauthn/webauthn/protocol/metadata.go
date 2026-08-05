@@ -10,8 +10,15 @@ import (
 	"github.com/go-webauthn/webauthn/metadata"
 )
 
-func ValidateMetadata(ctx context.Context, mds metadata.Provider, aaguid uuid.UUID, attestationType string, x5cs []any) (protoErr *Error) {
+// ValidateMetadata validates the metadata for the given authenticator.
+//
+//nolint:gocyclo
+func ValidateMetadata(ctx context.Context, mds metadata.Provider, aaguid uuid.UUID, attestationType, attestationFormat string, x5cs []any) (protoErr *Error) {
 	if mds == nil {
+		return nil
+	}
+
+	if AttestationFormat(attestationFormat) == AttestationFormatNone {
 		return nil
 	}
 
@@ -19,9 +26,8 @@ func ValidateMetadata(ctx context.Context, mds metadata.Provider, aaguid uuid.UU
 		entry *metadata.Entry
 		err   error
 	)
-
 	if entry, err = mds.GetEntry(ctx, aaguid); err != nil {
-		return ErrMetadata.WithInfo(fmt.Sprintf("Failed to validate authenticator metadata for Authenticator Attestation GUID '%s'. Error occurred retreiving the metadata entry: %+v", aaguid, err))
+		return ErrMetadata.WithInfo(fmt.Sprintf("Failed to validate authenticator metadata for Authenticator Attestation GUID '%s'. Error occurred retrieving the metadata entry: %+v", aaguid, err))
 	}
 
 	if entry == nil {
@@ -36,7 +42,7 @@ func ValidateMetadata(ctx context.Context, mds metadata.Provider, aaguid uuid.UU
 		return nil
 	}
 
-	if attestationType != "" && mds.GetValidateAttestationTypes(ctx) {
+	if attestationType != "" && attestationType != stmtTypNone && mds.GetValidateAttestationTypes(ctx) {
 		found := false
 
 		for _, atype := range entry.MetadataStatement.AttestationTypes {
@@ -98,7 +104,7 @@ func ValidateMetadata(ctx context.Context, mds metadata.Provider, aaguid uuid.UU
 			}
 
 			if _, err = x5c.Verify(entry.MetadataStatement.Verifier(x5cis)); err != nil {
-				return ErrMetadata.WithDetails(fmt.Sprintf("Failed to validate attestation statement signature during attestation validation for Authenticator Attestation GUID '%s'. The attestation certificate could not be verified due to an error validating the trust chain agaisnt the Metadata Service.", aaguid)).WithError(err)
+				return ErrMetadata.WithDetails(fmt.Sprintf("Failed to validate attestation statement signature during attestation validation for Authenticator Attestation GUID '%s'. The attestation certificate could not be verified due to an error validating the trust chain against the Metadata Service.", aaguid)).WithError(err)
 			}
 		}
 	}

@@ -51,12 +51,12 @@
 > * JS/TS SimpleWebAuthn client – https://github.com/MasterKale/SimpleWebAuthn
 
 Used in project:
-![Static Badge](https://img.shields.io/badge/Go_WebAuthn-v0.14.0-green)
-![Static Badge](https://img.shields.io/badge/TS%5CJS%20SimpleWebAuthn-v13.2.0-green)
+![Static Badge](https://img.shields.io/badge/Go_WebAuthn-v0.17.4-green)
+![Static Badge](https://img.shields.io/badge/TS%5CJS%20SimpleWebAuthn-v13.3.0-green)
 
 Actual versions:
 ![GitHub Release](https://img.shields.io/github/v/release/go-webauthn/webauthn?label=Go%20WebAuthn)
-![GitHub Release](https://img.shields.io/github/v/release/MasterKale/SimpleWebAuthn?label=TS%5CJS%20SimpleWebAuthn)
+![npm](https://img.shields.io/npm/v/%40simplewebauthn%2Fbrowser?label=TS%5CJS%20SimpleWebAuthn)
 
 ## Installation
 
@@ -224,7 +224,8 @@ Full list of options:
 #### Client-side
 
 You need a client-side library that can be used to interact with the server-side library. In example app we use
-[SimpleWebAuthn](https://github.com/MasterKale/SimpleWebAuthn) library (check `_example/web` directory).
+[SimpleWebAuthn](https://github.com/MasterKale/SimpleWebAuthn) v13.3.0 library (check `_example/web` directory).
+The example vendors the official ES5 UMD bundle, so it does not depend on a third-party CDN at runtime.
 
 ### Example Application
 
@@ -269,7 +270,7 @@ with `passkey.UserIDFromCtx`.
 | Helper                       | Description                                                             |
 |------------------------------|-------------------------------------------------------------------------|
 | Unauthorized                 | Returns a 401 Unauthorized response when the user is not authenticated. |
-| RedirectUnauthorized(target) | Redirects the user to a given URL when they are not authenticated.      |
+| RedirectUnauthorized(target) | Redirects the user to a local URL when they are not authenticated.      |
 | UserFromContext              | Get userID from context                                                 |
 
 You can use it to protect routes that require authentication:
@@ -302,7 +303,8 @@ func main() {
 
 ### Common tasks
 
-To common dev task just use `make`:
+The golangci-lint version is pinned in `.golangci-lint-version` and shared by local `make lint` and GitHub Actions.
+Run `make install-lint` to install the required version, then use `make` for common development tasks:
 
 ```bash
 ➜  passkey git:(main) make help
@@ -312,6 +314,7 @@ task                 help
 ------               ----
                      
 lint                 Lint the files
+install-lint         Install the pinned golangci-lint version
 test                 Run unittests
 run                  Run example project
 up                   Run example project with local SSL (self-signed certificate)

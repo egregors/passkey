@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -62,9 +63,26 @@ func Unauthorized(w http.ResponseWriter, _ *http.Request) {
 
 // RedirectUnauthorized redirects the user to the target URL with a 401 Unauthorized status code.
 func RedirectUnauthorized(target url.URL) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, target.String(), http.StatusSeeOther)
+	if !isLocalRedirectTarget(target) {
+		return Unauthorized
 	}
+
+	targetURL := target.String()
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		//nolint:gosec // G710: target is validated as a local URL before the closure is created.
+		http.Redirect(w, r, targetURL, http.StatusSeeOther)
+	}
+}
+
+func isLocalRedirectTarget(target url.URL) bool {
+	if target.IsAbs() || target.Host != "" || target.User != nil || target.Opaque != "" {
+		return false
+	}
+
+	// Network-path references (//host/path) and backslashes can be interpreted
+	// as cross-origin URLs by user agents even when URL.Scheme is empty.
+	return !strings.HasPrefix(target.Path, "//") && !strings.Contains(target.Path, `\`)
 }
 
 // UserIDFromCtx returns the user ID from the request context. If the userID is not found, it returns nil and false.

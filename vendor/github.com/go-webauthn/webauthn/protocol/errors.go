@@ -1,5 +1,6 @@
 package protocol
 
+// Error is a struct that describes specific error conditions in a structured format.
 type Error struct {
 	// Short name for the type of error that has occurred.
 	Type string `json:"type"`
@@ -43,10 +44,56 @@ func (e *Error) WithError(err error) *Error {
 	return &errCopy
 }
 
+// ErrorUnknownCredential is a special Error which signals the fact the provided credential is unknown. The reason this
+// specific error type is useful is so that the relying-party can send a signal to the Authenticator that the
+// credential has been removed.
+type ErrorUnknownCredential struct {
+	Err *Error
+}
+
+func (e *ErrorUnknownCredential) Error() string {
+	return e.Err.Error()
+}
+
+func (e *ErrorUnknownCredential) Unwrap() error {
+	return e.Err
+}
+
+func (e *ErrorUnknownCredential) copy() ErrorUnknownCredential {
+	err := *e.Err
+
+	return ErrorUnknownCredential{Err: &err}
+}
+
+func (e *ErrorUnknownCredential) WithDetails(details string) *ErrorUnknownCredential {
+	err := e.copy()
+	err.Err.Details = details
+
+	return &err
+}
+
+func (e *ErrorUnknownCredential) WithInfo(info string) *ErrorUnknownCredential {
+	err := e.copy()
+	err.Err.DevInfo = info
+
+	return &err
+}
+
+func (e *ErrorUnknownCredential) WithError(err error) *ErrorUnknownCredential {
+	errCopy := e.copy()
+	errCopy.Err.Err = err
+
+	return &errCopy
+}
+
 var (
 	ErrBadRequest = &Error{
 		Type:    "invalid_request",
 		Details: "Error reading the request data",
+	}
+	ErrPolicyRestriction = &Error{
+		Type:    "policy_restriction",
+		Details: "Policy restriction prevented the operation from completing",
 	}
 	ErrChallengeMismatch = &Error{
 		Type:    "challenge_mismatch",
