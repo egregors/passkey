@@ -26,8 +26,9 @@ jobs:
       - name: build and test
         run: |
           go get -v
-          go test ./... -timeout=60s -race -covermode=atomic -coverprofile=$GITHUB_WORKSPACE/profile.cov_tmp
+          go test . -timeout=60s -race -covermode=atomic -coverprofile=$GITHUB_WORKSPACE/profile.cov_tmp
           cat $GITHUB_WORKSPACE/profile.cov_tmp | grep -v "mock_" > $GITHUB_WORKSPACE/profile.cov
+          go test ./deps ./log -timeout=60s -race
           go build -race
         env:
           GO111MODULE: "on"
