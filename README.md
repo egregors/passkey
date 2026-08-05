@@ -303,7 +303,8 @@ func main() {
 
 ### Common tasks
 
-To common dev task just use `make`:
+The golangci-lint version is pinned in `.golangci-lint-version` and shared by local `make lint` and GitHub Actions.
+Run `make install-lint` to install the required version, then use `make` for common development tasks:
 
 ```bash
 ➜  passkey git:(main) make help
@@ -313,6 +314,7 @@ task                 help
 ------               ----
                      
 lint                 Lint the files
+install-lint         Install the pinned golangci-lint version
 test                 Run unittests
 run                  Run example project
 up                   Run example project with local SSL (self-signed certificate)
