@@ -1250,7 +1250,7 @@ func TestPasskey_Logout(t *testing.T) {
 				require.Len(t, cookies, 1)
 				c := cookies[0]
 				assert.Equal(t, camelCaseConcat(defaultSessionNamePrefix, defaultUserSessionName), c.Name)
-				assert.Equal(t, "", c.Value)
+				assert.Empty(t, c.Value)
 				assert.Equal(t, -1, c.MaxAge)
 			},
 		},
