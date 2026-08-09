@@ -330,7 +330,7 @@ func (p *Passkey) Logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p.authSessionStore.Delete(sid.Value)
+	p.userSessionStore.Delete(sid.Value)
 	p.deleteAuthSessionCookie(p.cookieSettings.userSessionName, w)
 }
 

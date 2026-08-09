@@ -29,3 +29,7 @@ go.work.sum
 
 # self-signed certs
 /_example/certs
+
+# agents trash
+.agents/
+
