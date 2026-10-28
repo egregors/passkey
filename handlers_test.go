@@ -86,6 +86,7 @@ func TestPasskey_beginRegistration(t *testing.T) {
 	}()
 
 	user := NewMockUser(t)
+	user.EXPECT().WebAuthnCredentials().Return(nil)
 	user.EXPECT().
 		WebAuthnName().
 		Return("root@example.com")
@@ -302,6 +303,7 @@ func TestPasskey_finishRegistration(t *testing.T) {
 	}()
 
 	user := NewMockUser(t)
+	user.EXPECT().WebAuthnCredentials().Return(nil)
 	user.EXPECT().
 		PutCredential(mock.AnythingOfType("webauthn.Credential"))
 	user.EXPECT().

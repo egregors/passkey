@@ -20,6 +20,9 @@ type User interface {
 
 // UserStore is a persistent storage for users and credentials
 type UserStore interface {
+	// Create must atomically insert a new user with a new WebAuthn ID and no
+	// credentials. If the username exists, return ErrUserAlreadyExists.
+	// Never return an existing user or use an upsert for public registration.
 	Create(username string) (User, error)
 	Update(User) error
 

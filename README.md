@@ -101,6 +101,18 @@ type SessionStore[T webauthn.SessionData | UserSessionData] interface {
 
 ```
 
+`UserStore.Create` must atomically insert a new user with a fresh WebAuthn ID and no credentials.
+If the username already exists, return `passkey.ErrUserAlreadyExists` (wrapping it is supported).
+Use a database unique constraint; do not upsert or return an existing user. Public registration
+returns HTTP 409 for this error and for users that already have credentials, at both begin and finish.
+It cannot be used to add another passkey to an existing account.
+
+Registration currently creates the user at begin, so an abandoned ceremony reserves the username.
+Do not work around this by returning the existing user. Account recovery and additional credential
+enrollment require a separate authorized workflow. Personal deployments should protect initial
+enrollment with an operator-controlled procedure or bootstrap secret; a username allowlist alone
+is not proof of account ownership.
+
 Your `User` model also should implement `User` interface:
 
 ```go

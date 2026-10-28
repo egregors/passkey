@@ -65,7 +65,7 @@ func (s *UserStore) Create(username string) (passkey.User, error) {
 	defer s.mu.Unlock()
 
 	if _, ok := s.users[username]; ok {
-		return nil, fmt.Errorf("user %s already exists", username)
+		return nil, fmt.Errorf("user %s: %w", username, passkey.ErrUserAlreadyExists)
 	}
 
 	u := &User{

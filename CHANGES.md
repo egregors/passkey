@@ -1,6 +1,11 @@
 Changes
 =======
 
+#### Unreleased
+
+* Require insert-only user creation for public registration and return HTTP 409 for conflicts
+* Reject public registration for users with existing credentials at begin and finish
+
 #### ver.: 1.0.9 (05.08.2026)
 
 * Go WebAuthn dependency update (v0.14.0 -> v0.17.4)

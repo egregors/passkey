@@ -2,6 +2,7 @@ package passkey
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -14,7 +15,11 @@ func (p *Passkey) beginRegistration(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		if err != nil {
 			p.log.Errorf("%s", err.Error())
-			JSONResponse(w, err.Error(), http.StatusBadRequest)
+			status := http.StatusBadRequest
+			if errors.Is(err, ErrUserAlreadyExists) {
+				status = http.StatusConflict
+			}
+			JSONResponse(w, err.Error(), status)
 			p.log.Debugf("begin registration: done with error")
 		}
 	}()
@@ -36,6 +41,12 @@ func (p *Passkey) beginRegistration(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p.log.Debugf("user created: %s", user.WebAuthnName())
+	// A store that still upserts must not enroll keys for an established user.
+	// Stores must also enforce insert-only creation for users without credentials.
+	if len(user.WebAuthnCredentials()) != 0 {
+		err = ErrUserAlreadyExists
+		return
+	}
 
 	p.log.Debugf("try to get options from webauthn")
 	options, session, err := p.webAuthn.BeginRegistration(user)
@@ -72,7 +83,11 @@ func (p *Passkey) finishRegistration(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		if err != nil {
 			p.log.Errorf("%s", err.Error())
-			JSONResponse(w, err.Error(), http.StatusBadRequest)
+			status := http.StatusBadRequest
+			if errors.Is(err, ErrUserAlreadyExists) {
+				status = http.StatusConflict
+			}
+			JSONResponse(w, err.Error(), status)
 			p.log.Debugf("cleaned up session cookie")
 			p.log.Debugf("<<< finish registration: done with error")
 		}
@@ -107,6 +122,13 @@ func (p *Passkey) finishRegistration(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p.log.Debugf("got user: %s", user.WebAuthnName())
+	// Recheck at finish, including ceremonies started before registration was
+	// restricted. Public registration may only enroll the first credential.
+	if len(user.WebAuthnCredentials()) != 0 {
+		p.authSessionStore.Delete(sid.Value)
+		err = ErrUserAlreadyExists
+		return
+	}
 
 	p.log.Debugf("try to get credential from webauthn")
 	credential, err := p.webAuthn.FinishRegistration(user, *session, r)
