@@ -16,7 +16,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/egregors/passkey/deps"
-	"github.com/egregors/passkey/log"
 )
 
 func body(key, value string) io.Reader {
@@ -77,14 +76,6 @@ func Test_getUsername(t *testing.T) {
 }
 
 func TestPasskey_beginRegistration(t *testing.T) {
-	log.Info.Off()
-	log.Debg.Off()
-
-	defer func() {
-		log.Info.On()
-		log.Debg.On()
-	}()
-
 	user := NewMockUser(t)
 	user.EXPECT().
 		WebAuthnName().
@@ -293,14 +284,6 @@ func TestPasskey_beginRegistration(t *testing.T) {
 }
 
 func TestPasskey_finishRegistration(t *testing.T) {
-	log.Info.Off()
-	log.Debg.Off()
-
-	defer func() {
-		log.Info.On()
-		log.Debg.On()
-	}()
-
 	user := NewMockUser(t)
 	user.EXPECT().
 		PutCredential(mock.AnythingOfType("webauthn.Credential"))
@@ -604,14 +587,6 @@ func TestPasskey_finishRegistration(t *testing.T) {
 }
 
 func TestPasskey_beginLogin(t *testing.T) {
-	log.Info.Off()
-	log.Debg.Off()
-
-	defer func() {
-		log.Info.On()
-		log.Debg.On()
-	}()
-
 	user := NewMockUser(t)
 
 	user.EXPECT().
@@ -838,14 +813,6 @@ func TestPasskey_deleteAuthSessionCookie(t *testing.T) {
 }
 
 func TestPasskey_finishLogin(t *testing.T) {
-	log.Info.Off()
-	log.Debg.Off()
-
-	defer func() {
-		log.Info.On()
-		log.Debg.On()
-	}()
-
 	user := NewMockUser(t)
 	user.EXPECT().
 		PutCredential(mock.AnythingOfType("webauthn.Credential"))
@@ -1212,14 +1179,6 @@ func TestPasskey_finishLogin(t *testing.T) {
 }
 
 func TestPasskey_Logout(t *testing.T) {
-	log.Info.Off()
-	log.Debg.Off()
-
-	defer func() {
-		log.Info.On()
-		log.Debg.On()
-	}()
-
 	tests := []struct {
 		name             string
 		w                *httptest.ResponseRecorder
