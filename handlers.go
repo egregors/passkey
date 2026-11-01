@@ -19,7 +19,7 @@ func (p *Passkey) beginRegistration(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	p.log.Debugf("got request: %v", r)
+	p.log.Debugf("got request")
 	username, err := getUsername(r)
 	if err != nil {
 		err = fmt.Errorf("can't get username: %w", err)
@@ -53,7 +53,7 @@ func (p *Passkey) beginRegistration(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
-	p.log.Debugf("session saved: %s", t)
+	p.log.Debugf("session saved")
 
 	p.log.Debugf("setting cookie")
 	p.setAuthSessionCookie(w, t)
@@ -87,7 +87,7 @@ func (p *Passkey) finishRegistration(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
-	p.log.Debugf("got session id: %s", sid.Value)
+	p.log.Debugf("got session id")
 
 	// Get the session data stored from the function above
 	p.log.Debugf("try to get session data")
@@ -148,7 +148,7 @@ func (p *Passkey) beginLogin(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	p.log.Debugf("got request: %v", r)
+	p.log.Debugf("got request")
 	username, err := getUsername(r)
 	if err != nil {
 		err = fmt.Errorf("can't get username: %w", err)
@@ -183,7 +183,7 @@ func (p *Passkey) beginLogin(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
-	p.log.Debugf("session saved: %s", t)
+	p.log.Debugf("session saved")
 
 	p.log.Debugf("setting cookie")
 	p.setAuthSessionCookie(w, t)
@@ -215,7 +215,7 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
-	p.log.Debugf("got session id: %s", sid.Value)
+	p.log.Debugf("got session")
 
 	// Get the session data stored from the function above
 	p.log.Debugf("try to get session data")
@@ -277,7 +277,7 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
-	p.log.Debugf("session saved: %s", t)
+	p.log.Debugf("session saved")
 
 	p.log.Debugf("setting cookie")
 	p.setUserSessionCookie(w, t)
