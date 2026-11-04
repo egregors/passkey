@@ -28,9 +28,13 @@ func WithInsecureCookie() Option {
 func WithSessionCookieNamePrefix(prefix string) Option {
 	return func(p *Passkey) {
 		if prefix != "" {
-			p.cookieSettings.authSessionName = camelCaseConcat(
+			p.cookieSettings.loginSessionName = camelCaseConcat(
 				prefix,
-				strings.TrimPrefix(p.cookieSettings.authSessionName, defaultSessionNamePrefix),
+				strings.TrimPrefix(p.cookieSettings.loginSessionName, defaultSessionNamePrefix),
+			)
+			p.cookieSettings.registrationSessionName = camelCaseConcat(
+				prefix,
+				strings.TrimPrefix(p.cookieSettings.registrationSessionName, defaultSessionNamePrefix),
 			)
 			p.cookieSettings.userSessionName = camelCaseConcat(
 				prefix,

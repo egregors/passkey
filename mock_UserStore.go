@@ -17,9 +17,9 @@ func (_m *MockUserStore) EXPECT() *MockUserStore_Expecter {
 	return &MockUserStore_Expecter{mock: &_m.Mock}
 }
 
-// Create provides a mock function with given fields: username
-func (_m *MockUserStore) Create(username string) (User, error) {
-	ret := _m.Called(username)
+// Create provides a mock function with given fields: u
+func (_m *MockUserStore) Create(u NewUser) (User, error) {
+	ret := _m.Called(u)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Create")
@@ -27,19 +27,19 @@ func (_m *MockUserStore) Create(username string) (User, error) {
 
 	var r0 User
 	var r1 error
-	if rf, ok := ret.Get(0).(func(string) (User, error)); ok {
-		return rf(username)
+	if rf, ok := ret.Get(0).(func(NewUser) (User, error)); ok {
+		return rf(u)
 	}
-	if rf, ok := ret.Get(0).(func(string) User); ok {
-		r0 = rf(username)
+	if rf, ok := ret.Get(0).(func(NewUser) User); ok {
+		r0 = rf(u)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(User)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(string) error); ok {
-		r1 = rf(username)
+	if rf, ok := ret.Get(1).(func(NewUser) error); ok {
+		r1 = rf(u)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -53,14 +53,14 @@ type MockUserStore_Create_Call struct {
 }
 
 // Create is a helper method to define mock.On call
-//   - username string
-func (_e *MockUserStore_Expecter) Create(username interface{}) *MockUserStore_Create_Call {
-	return &MockUserStore_Create_Call{Call: _e.mock.On("Create", username)}
+//   - u interface{}
+func (_e *MockUserStore_Expecter) Create(u interface{}) *MockUserStore_Create_Call {
+	return &MockUserStore_Create_Call{Call: _e.mock.On("Create", u)}
 }
 
-func (_c *MockUserStore_Create_Call) Run(run func(username string)) *MockUserStore_Create_Call {
+func (_c *MockUserStore_Create_Call) Run(run func(u NewUser)) *MockUserStore_Create_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string))
+		run(args[0].(NewUser))
 	})
 	return _c
 }
@@ -70,7 +70,7 @@ func (_c *MockUserStore_Create_Call) Return(_a0 User, _a1 error) *MockUserStore_
 	return _c
 }
 
-func (_c *MockUserStore_Create_Call) RunAndReturn(run func(string) (User, error)) *MockUserStore_Create_Call {
+func (_c *MockUserStore_Create_Call) RunAndReturn(run func(NewUser) (User, error)) *MockUserStore_Create_Call {
 	_c.Call.Return(run)
 	return _c
 }

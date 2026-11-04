@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/google/uuid"
+	"github.com/go-webauthn/webauthn/webauthn"
 
 	"github.com/egregors/passkey"
 )
@@ -46,7 +46,7 @@ func (s *UserStore) Get(userID []byte) (passkey.User, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("user not found")
+	return nil, passkey.ErrUserNotFound
 }
 
 func (s *UserStore) GetByName(username string) (passkey.User, error) {
@@ -57,22 +57,23 @@ func (s *UserStore) GetByName(username string) (passkey.User, error) {
 		return u, nil
 	}
 
-	return nil, fmt.Errorf("user not found")
+	return nil, passkey.ErrUserNotFound
 }
 
-func (s *UserStore) Create(username string) (passkey.User, error) {
+func (s *UserStore) Create(user passkey.NewUser) (passkey.User, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, ok := s.users[username]; ok {
-		return nil, fmt.Errorf("user %s already exists", username)
+	if _, ok := s.users[user.Username]; ok {
+		return nil, fmt.Errorf("%w: user %s already exists", passkey.ErrUserAlreadyExists, user.Username)
 	}
 
 	u := &User{
-		ID:   []byte(uuid.NewString()),
-		Name: username,
+		ID:    user.UserID,
+		Name:  user.Username,
+		creds: []webauthn.Credential{user.Credential},
 	}
-	s.users[username] = u
+	s.users[user.Username] = u
 
 	return u, nil
 }
@@ -126,7 +127,7 @@ func (s *SessionStore[T]) Create(data T) (string, error) {
 
 	sID, err := genSessionID()
 	if err != nil {
-		return "", nil
+		return "", err
 	}
 
 	// FIXME: there could be collisions, but in prepuce of example we don't care
@@ -139,11 +140,24 @@ func (s *SessionStore[T]) Get(token string) (*T, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	if val, ok := s.sessions[token]; !ok {
+	val, ok := s.sessions[token]
+	if !ok {
 		return nil, false
-	} else {
-		return &val, true
 	}
+	return &val, true
+}
+
+func (s *SessionStore[T]) Consume(token string) (*T, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	val, ok := s.sessions[token]
+	if !ok {
+		return nil, false
+	}
+	delete(s.sessions, token)
+
+	return &val, true
 }
 
 func (s *SessionStore[T]) Delete(token string) {

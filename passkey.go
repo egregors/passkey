@@ -17,18 +17,27 @@ const (
 	pathLoginBegin     = "/passkey/loginBegin"
 	pathLoginFinish    = "/passkey/loginFinish"
 
-	defaultSessionNamePrefix = "pk"
-	defaultAuthSessionName   = "asid"
-	defaultUserSessionName   = "usid"
-	defaultAuthSessionMaxAge = 5 * time.Minute
-	defaultUserSessionMaxAge = 60 * time.Minute
+	defaultSessionNamePrefix         = "pk"
+	defaultLoginSessionName          = "lsid"
+	defaultRegistrationSessionName   = "rsid"
+	defaultUserSessionName           = "usid"
+	defaultLoginSessionMaxAge        = 5 * time.Minute
+	defaultRegistrationSessionMaxAge = 5 * time.Minute
+	defaultUserSessionMaxAge         = 60 * time.Minute
 )
 
 type Config struct {
 	WebauthnConfig *webauthn.Config
 	UserStore
-	AuthSessionStore SessionStore[webauthn.SessionData]
-	UserSessionStore SessionStore[UserSessionData]
+	LoginSessionStore        SessionStore[webauthn.SessionData]
+	RegistrationSessionStore SessionStore[RegistrationSessionData]
+	UserSessionStore         SessionStore[UserSessionData]
+}
+
+type RegistrationSessionData struct {
+	Username string
+	Session  webauthn.SessionData
+	Expires  time.Time
 }
 
 type UserSessionData struct {
@@ -37,14 +46,16 @@ type UserSessionData struct {
 }
 
 type CookieSettings struct {
-	Path              string
-	authSessionName   string
-	userSessionName   string
-	authSessionMaxAge time.Duration
-	userSessionMaxAge time.Duration
-	Secure            bool
-	HttpOnly          bool //nolint:revive // naming from http.Cookie
-	SameSite          http.SameSite
+	Path                      string
+	loginSessionName          string
+	registrationSessionName   string
+	userSessionName           string
+	loginSessionMaxAge        time.Duration
+	registrationSessionMaxAge time.Duration
+	userSessionMaxAge         time.Duration
+	Secure                    bool
+	HttpOnly                  bool //nolint:revive // naming from http.Cookie
+	SameSite                  http.SameSite
 }
 
 type Passkey struct {
@@ -52,9 +63,10 @@ type Passkey struct {
 
 	webAuthn deps.WebAuthnInterface
 
-	userStore        UserStore
-	authSessionStore SessionStore[webauthn.SessionData]
-	userSessionStore SessionStore[UserSessionData]
+	userStore                UserStore
+	loginSessionStore        SessionStore[webauthn.SessionData]
+	registrationSessionStore SessionStore[RegistrationSessionData]
+	userSessionStore         SessionStore[UserSessionData]
 
 	mux       *http.ServeMux
 	staticMux *http.ServeMux
@@ -68,9 +80,10 @@ func New(cfg Config, opts ...Option) (*Passkey, error) {
 	p := &Passkey{
 		cfg: cfg,
 
-		userStore:        cfg.UserStore,
-		authSessionStore: cfg.AuthSessionStore,
-		userSessionStore: cfg.UserSessionStore,
+		userStore:                cfg.UserStore,
+		loginSessionStore:        cfg.LoginSessionStore,
+		registrationSessionStore: cfg.RegistrationSessionStore,
+		userSessionStore:         cfg.UserSessionStore,
 
 		mux:       http.NewServeMux(),
 		staticMux: http.NewServeMux(),
@@ -95,9 +108,10 @@ func New(cfg Config, opts ...Option) (*Passkey, error) {
 
 func (p *Passkey) must() error {
 	return mustNotNil(map[string]any{
-		"userStore":        p.userStore,
-		"authSessionStore": p.authSessionStore,
-		"userSessionStore": p.userSessionStore,
+		"userStore":                p.userStore,
+		"loginSessionStore":        p.loginSessionStore,
+		"registrationSessionStore": p.registrationSessionStore,
+		"userSessionStore":         p.userSessionStore,
 	})
 }
 
@@ -169,13 +183,15 @@ func (p *Passkey) MountRoutes(mux *http.ServeMux, path string) {
 
 func (p *Passkey) setupCookieSettings() {
 	p.cookieSettings = CookieSettings{
-		Path:              "/",
-		authSessionName:   defaultAuthSessionName,
-		userSessionName:   defaultUserSessionName,
-		authSessionMaxAge: defaultAuthSessionMaxAge,
-		userSessionMaxAge: defaultUserSessionMaxAge,
-		Secure:            true,
-		HttpOnly:          true,
-		SameSite:          http.SameSiteLaxMode,
+		Path:                      "/",
+		loginSessionName:          defaultLoginSessionName,
+		registrationSessionName:   defaultRegistrationSessionName,
+		userSessionName:           defaultUserSessionName,
+		loginSessionMaxAge:        defaultLoginSessionMaxAge,
+		registrationSessionMaxAge: defaultRegistrationSessionMaxAge,
+		userSessionMaxAge:         defaultUserSessionMaxAge,
+		Secure:                    true,
+		HttpOnly:                  true,
+		SameSite:                  http.SameSiteLaxMode,
 	}
 }

@@ -31,6 +31,7 @@ func main() {
 	origin := fmt.Sprintf("%s://%s%s%s", proto, sub, host, originPort)
 
 	l := log.NewLogger()
+	l.Enable(log.DBG)
 
 	pkey, err := passkey.New(
 		passkey.Config{
@@ -39,9 +40,10 @@ func main() {
 				RPID:          host,              // Generally the FQDN for your site
 				RPOrigins:     []string{origin},  // The origin URLs allowed for WebAuthn
 			},
-			UserStore:        NewUserStore(),
-			AuthSessionStore: NewSessionStore[webauthn.SessionData](),
-			UserSessionStore: NewSessionStore[passkey.UserSessionData](),
+			UserStore:                NewUserStore(),
+			LoginSessionStore:        NewSessionStore[webauthn.SessionData](),
+			RegistrationSessionStore: NewSessionStore[passkey.RegistrationSessionData](),
+			UserSessionStore:         NewSessionStore[passkey.UserSessionData](),
 		},
 		passkey.WithLogger(l),
 		passkey.WithUserSessionMaxAge(60*time.Minute),
@@ -79,7 +81,7 @@ func main() {
 
 	// start the server
 	l.Infof("Listening on %s\n", origin)
-	if err := http.ListenAndServe(serverPort, mux); err != nil { //nolint:gosec
+	if err := http.ListenAndServe(serverPort, mux); err != nil { //nolint:gosec // example server
 		panic(err)
 	}
 }

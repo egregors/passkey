@@ -163,9 +163,10 @@ func main() {
 				RPID:          host,              // Generally the FQDN for your site
 				RPOrigins:     []string{origin},  // The origin URLs allowed for WebAuthn
 			},
-			UserStore:        NewUserStore(),
-			AuthSessionStore: NewSessionStore[webauthn.SessionData](),
-			UserSessionStore: NewSessionStore[passkey.UserSessionData](),
+			UserStore:                NewUserStore(),
+			LoginSessionStore:        NewSessionStore[webauthn.SessionData](),
+			RegistrationSessionStore: NewSessionStore[passkey.RegistrationSessionData](),
+			UserSessionStore:         NewSessionStore[passkey.UserSessionData](),
 		},
 		passkey.WithLogger(l),
 		passkey.WithUserSessionMaxAge(60*time.Minute),
