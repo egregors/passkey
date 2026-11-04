@@ -19,7 +19,7 @@ func (p *Passkey) beginRegistration(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	p.log.Debugf("got request: %v", r)
+	p.log.Debugf("got request")
 	username, err := getUsername(r)
 	if err != nil {
 		err = fmt.Errorf("can't get username: %w", err)
@@ -53,7 +53,7 @@ func (p *Passkey) beginRegistration(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
-	p.log.Debugf("session saved: %s", t)
+	p.log.Debugf("session saved")
 
 	p.log.Debugf("setting cookie")
 	p.setAuthSessionCookie(w, t)
@@ -87,7 +87,7 @@ func (p *Passkey) finishRegistration(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
-	p.log.Debugf("got session id: %s", sid.Value)
+	p.log.Debugf("got session id")
 
 	// Get the session data stored from the function above
 	p.log.Debugf("try to get session data")
@@ -148,7 +148,7 @@ func (p *Passkey) beginLogin(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	p.log.Debugf("got request: %v", r)
+	p.log.Debugf("got request")
 	username, err := getUsername(r)
 	if err != nil {
 		err = fmt.Errorf("can't get username: %w", err)
@@ -183,7 +183,7 @@ func (p *Passkey) beginLogin(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
-	p.log.Debugf("session saved: %s", t)
+	p.log.Debugf("session saved")
 
 	p.log.Debugf("setting cookie")
 	p.setAuthSessionCookie(w, t)
@@ -215,7 +215,7 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
-	p.log.Debugf("got session id: %s", sid.Value)
+	p.log.Debugf("got session")
 
 	// Get the session data stored from the function above
 	p.log.Debugf("try to get session data")
@@ -277,7 +277,7 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
-	p.log.Debugf("session saved: %s", t)
+	p.log.Debugf("session saved")
 
 	p.log.Debugf("setting cookie")
 	p.setUserSessionCookie(w, t)
@@ -306,6 +306,10 @@ func (p *Passkey) setUserSessionCookie(w http.ResponseWriter, value string) {
 }
 
 func (p *Passkey) setSessionCookie(w http.ResponseWriter, name, value string, maxAge time.Duration) {
+	// Secure is enabled by default and can only be disabled explicitly with
+	// WithInsecureCookie for local development. HttpOnly and SameSite are
+	// initialized to secure values in setupCookieSettings.
+	//nolint:gosec // G124 cannot infer the secure defaults behind cookieSettings.
 	http.SetCookie(w, &http.Cookie{
 		Name:     name,
 		Value:    value,
@@ -326,17 +330,24 @@ func (p *Passkey) Logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p.authSessionStore.Delete(sid.Value)
+	p.userSessionStore.Delete(sid.Value)
 	p.deleteAuthSessionCookie(p.cookieSettings.userSessionName, w)
 }
 
 // deleteSessionCookie deletes a cookie
 func (p *Passkey) deleteAuthSessionCookie(name string, w http.ResponseWriter) { //nolint:unparam // it's ok here
+	// Use the same scope and security attributes as the original cookie so the
+	// browser reliably expires that cookie instead of creating a second one.
+	//nolint:gosec // G124 cannot infer the secure defaults behind cookieSettings.
 	http.SetCookie(w, &http.Cookie{
-		Name:    name,
-		Value:   "",
-		Expires: time.Unix(0, 0),
-		MaxAge:  -1,
+		Name:     name,
+		Value:    "",
+		Path:     p.cookieSettings.Path,
+		Expires:  time.Unix(0, 0),
+		MaxAge:   -1,
+		Secure:   p.cookieSettings.Secure,
+		HttpOnly: p.cookieSettings.HttpOnly,
+		SameSite: p.cookieSettings.SameSite,
 	})
 }
 

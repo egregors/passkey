@@ -1,48 +1,68 @@
 package log
 
 import (
-	"io"
 	"log"
 	"os"
 )
 
 var (
-	Debg = &Logger{log.New(os.Stdout, "[DEBG] ", log.LstdFlags|log.Lshortfile)}
-	Info = &Logger{log.New(os.Stdout, "[INFO] ", log.LstdFlags|log.Lshortfile)}
-	Warn = &Logger{log.New(os.Stdout, "[WARN] ", log.LstdFlags|log.Lshortfile)}
-	Erro = &Logger{log.New(os.Stderr, "[ERRO] ", log.LstdFlags|log.Lshortfile)}
+	debg = log.New(os.Stdout, "[DEBG] ", log.LstdFlags|log.Lshortfile)
+	info = log.New(os.Stdout, "[INFO] ", log.LstdFlags|log.Lshortfile)
+	warn = log.New(os.Stdout, "[WARN] ", log.LstdFlags|log.Lshortfile)
+	erro = log.New(os.Stderr, "[ERRO] ", log.LstdFlags|log.Lshortfile)
+)
+
+type Level byte
+
+const (
+	DBG Level = 1 << iota
+	INF
+	WRN
+	ERR
 )
 
 type Logger struct {
-	*log.Logger
-}
-
-func (l *Logger) On() {
-	l.SetOutput(os.Stdout)
-}
-
-func (l *Logger) Off() {
-	l.SetOutput(io.Discard)
+	lvl Level
 }
 
 func NewLogger() *Logger {
 	return &Logger{
-		log.New(os.Stdout, "", log.LstdFlags),
+		lvl: INF | WRN | ERR,
 	}
 }
 
-func (l *Logger) Errorf(format string, v ...interface{}) {
-	Erro.Printf(format, v...)
+func (l *Logger) isEnabled(lvl Level) bool {
+	return l.lvl&lvl != 0
 }
 
-func (l *Logger) Debugf(format string, v ...interface{}) {
-	Debg.Printf(format, v...)
+func (l *Logger) Enable(levels Level) {
+	l.lvl |= levels
 }
 
-func (l *Logger) Infof(format string, v ...interface{}) {
-	Info.Printf(format, v...)
+func (l *Logger) Disable(levels Level) {
+	l.lvl &^= levels
 }
 
-func (l *Logger) Warnf(format string, v ...interface{}) {
-	Warn.Printf(format, v...)
+func (l *Logger) Debugf(format string, v ...any) {
+	if l.isEnabled(DBG) {
+		debg.Printf(format, v...)
+	}
+}
+
+func (l *Logger) Infof(format string, v ...any) {
+	if l.isEnabled(INF) {
+		info.Printf(format, v...)
+	}
+}
+
+func (l *Logger) Warnf(format string, v ...any) {
+	if l.isEnabled(WRN) {
+		warn.Printf(format, v...)
+	}
+}
+
+func (l *Logger) Errorf(format string, v ...any) {
+	if l.isEnabled(ERR) {
+		erro.Printf(format, v...)
+	}
 }

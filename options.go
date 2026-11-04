@@ -73,12 +73,12 @@ func camelCaseConcat(ws ...string) string {
 			continue
 		}
 
-		sb.WriteString(
-			fmt.Sprintf(
-				"%s%s",
-				string(strings.ToUpper(w)[0]),
-				strings.ToLower(w)[1:],
-			))
+		fmt.Fprintf(
+			&sb,
+			"%s%s",
+			string(strings.ToUpper(w)[0]),
+			strings.ToLower(w)[1:],
+		)
 	}
 
 	return sb.String()

@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAuth(t *testing.T) {
@@ -205,7 +206,7 @@ func TestAuth(t *testing.T) {
 				UserSessionStore: tt.args.userSessionStore(),
 			},
 		)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		t.Run(tt.name, func(t *testing.T) {
 			handler := p.Auth(
 				"pkUserKey",
@@ -230,11 +231,58 @@ func TestAuth(t *testing.T) {
 	}
 }
 
+func TestRedirectUnauthorized(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		target       url.URL
+		wantStatus   int
+		wantLocation string
+	}{
+		{
+			name:         "local path",
+			target:       url.URL{Path: "/login", RawQuery: "from=account"},
+			wantStatus:   http.StatusSeeOther,
+			wantLocation: "/login?from=account",
+		},
+		{
+			name:       "absolute URL",
+			target:     url.URL{Scheme: "https", Host: "attacker.example", Path: "/login"},
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name:       "network path reference",
+			target:     url.URL{Path: "//attacker.example/login"},
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name:       "backslash path",
+			target:     url.URL{Path: `\\attacker.example/login`},
+			wantStatus: http.StatusUnauthorized,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodGet, "/private", http.NoBody)
+
+			RedirectUnauthorized(tt.target)(w, r)
+
+			assert.Equal(t, tt.wantStatus, w.Code)
+			assert.Equal(t, tt.wantLocation, w.Header().Get("Location"))
+		})
+	}
+}
+
 func TestUserFromContext(t *testing.T) {
 	tests := []struct {
 		name      string
 		ctx       context.Context
-		pkUserKey string
+		pkUserKey AuthUserIDKey
 		wantVal   []byte
 		wantOk    bool
 	}{
@@ -247,21 +295,21 @@ func TestUserFromContext(t *testing.T) {
 		},
 		{
 			name:      "missing key",
-			ctx:       context.WithValue(context.Background(), "otherKey", "value"),
+			ctx:       context.WithValue(context.Background(), AuthUserIDKey("otherKey"), "value"),
 			pkUserKey: "pkUserKey",
 			wantVal:   nil,
 			wantOk:    false,
 		},
 		{
 			name:      "empty value",
-			ctx:       context.WithValue(context.Background(), "pkUserKey", ""),
+			ctx:       context.WithValue(context.Background(), AuthUserIDKey("pkUserKey"), ""),
 			pkUserKey: "pkUserKey",
 			wantVal:   nil,
 			wantOk:    false,
 		},
 		{
 			name:      "valid value",
-			ctx:       context.WithValue(context.Background(), "pkUserKey", []byte("value")),
+			ctx:       context.WithValue(context.Background(), AuthUserIDKey("pkUserKey"), []byte("value")),
 			pkUserKey: "pkUserKey",
 			wantVal:   []byte("value"),
 			wantOk:    true,

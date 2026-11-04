@@ -16,7 +16,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/egregors/passkey/deps"
-	"github.com/egregors/passkey/log"
 )
 
 func body(key, value string) io.Reader {
@@ -77,14 +76,6 @@ func Test_getUsername(t *testing.T) {
 }
 
 func TestPasskey_beginRegistration(t *testing.T) {
-	log.Info.Off()
-	log.Debg.Off()
-
-	defer func() {
-		log.Info.On()
-		log.Debg.On()
-	}()
-
 	user := NewMockUser(t)
 	user.EXPECT().
 		WebAuthnName().
@@ -293,14 +284,6 @@ func TestPasskey_beginRegistration(t *testing.T) {
 }
 
 func TestPasskey_finishRegistration(t *testing.T) {
-	log.Info.Off()
-	log.Debg.Off()
-
-	defer func() {
-		log.Info.On()
-		log.Debg.On()
-	}()
-
 	user := NewMockUser(t)
 	user.EXPECT().
 		PutCredential(mock.AnythingOfType("webauthn.Credential"))
@@ -370,7 +353,7 @@ func TestPasskey_finishRegistration(t *testing.T) {
 				assert.Contains(t, string(body), "Registration Success")
 			},
 			checkCookie: func(cookies []*http.Cookie) {
-				assert.Len(t, cookies, 0)
+				assert.Empty(t, cookies)
 			},
 		},
 		{
@@ -428,7 +411,7 @@ func TestPasskey_finishRegistration(t *testing.T) {
 			checkCookie: func(cookies []*http.Cookie) {
 				// check that the auth cookie is deleted, but
 				// TODO: looks like we actually didn't set any cookie in this handler
-				assert.Len(t, cookies, 0)
+				assert.Empty(t, cookies)
 			},
 		},
 		{
@@ -469,7 +452,7 @@ func TestPasskey_finishRegistration(t *testing.T) {
 				assert.Contains(t, string(body), "can't get user: ")
 			},
 			checkCookie: func(cookies []*http.Cookie) {
-				assert.Len(t, cookies, 0)
+				assert.Empty(t, cookies)
 			},
 		},
 		{
@@ -516,7 +499,7 @@ func TestPasskey_finishRegistration(t *testing.T) {
 				assert.Contains(t, string(body), "can't finish registration: ")
 			},
 			checkCookie: func(cookies []*http.Cookie) {
-				assert.Len(t, cookies, 0)
+				assert.Empty(t, cookies)
 			},
 		},
 		{
@@ -567,7 +550,7 @@ func TestPasskey_finishRegistration(t *testing.T) {
 				assert.Contains(t, string(body), "can't save user: ")
 			},
 			checkCookie: func(cookies []*http.Cookie) {
-				assert.Len(t, cookies, 0)
+				assert.Empty(t, cookies)
 			},
 		},
 	}
@@ -604,14 +587,6 @@ func TestPasskey_finishRegistration(t *testing.T) {
 }
 
 func TestPasskey_beginLogin(t *testing.T) {
-	log.Info.Off()
-	log.Debg.Off()
-
-	defer func() {
-		log.Info.On()
-		log.Debg.On()
-	}()
-
 	user := NewMockUser(t)
 
 	user.EXPECT().
@@ -816,15 +791,28 @@ func TestPasskey_beginLogin(t *testing.T) {
 	}
 }
 
+func TestPasskey_deleteAuthSessionCookie(t *testing.T) {
+	t.Parallel()
+
+	p := &Passkey{}
+	p.setupCookieSettings()
+	w := httptest.NewRecorder()
+
+	p.deleteAuthSessionCookie(p.cookieSettings.userSessionName, w)
+
+	cookies := w.Result().Cookies()
+	require.Len(t, cookies, 1)
+
+	cookie := cookies[0]
+	assert.Equal(t, p.cookieSettings.userSessionName, cookie.Name)
+	assert.Equal(t, p.cookieSettings.Path, cookie.Path)
+	assert.Equal(t, -1, cookie.MaxAge)
+	assert.True(t, cookie.Secure)
+	assert.True(t, cookie.HttpOnly)
+	assert.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
+}
+
 func TestPasskey_finishLogin(t *testing.T) {
-	log.Info.Off()
-	log.Debg.Off()
-
-	defer func() {
-		log.Info.On()
-		log.Debg.On()
-	}()
-
 	user := NewMockUser(t)
 	user.EXPECT().
 		PutCredential(mock.AnythingOfType("webauthn.Credential"))
@@ -1185,6 +1173,81 @@ func TestPasskey_finishLogin(t *testing.T) {
 
 			if tt.checkResp != nil {
 				tt.checkResp(tt.w.Body.Bytes())
+			}
+		})
+	}
+}
+
+func TestPasskey_Logout(t *testing.T) {
+	tests := []struct {
+		name             string
+		w                *httptest.ResponseRecorder
+		r                func() *http.Request
+		userSessionStore func() SessionStore[UserSessionData]
+		checkCookie      func(cookies []*http.Cookie)
+	}{
+		{
+			name: "succ: logout deletes session and cookie",
+			w:    httptest.NewRecorder(),
+			r: func() *http.Request {
+				req := httptest.NewRequest(http.MethodGet, "/logout", http.NoBody)
+				req.AddCookie(&http.Cookie{
+					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultUserSessionName),
+					Value: "user-session-token-1234",
+				})
+
+				return req
+			},
+			userSessionStore: func() SessionStore[UserSessionData] {
+				uStore := NewMockSessionStore[UserSessionData](t)
+				uStore.EXPECT().
+					Delete("user-session-token-1234").
+					Times(1)
+				return uStore
+			},
+			checkCookie: func(cookies []*http.Cookie) {
+				require.Len(t, cookies, 1)
+				c := cookies[0]
+				assert.Equal(t, camelCaseConcat(defaultSessionNamePrefix, defaultUserSessionName), c.Name)
+				assert.Empty(t, c.Value)
+				assert.Equal(t, -1, c.MaxAge)
+			},
+		},
+		{
+			name: "err: no cookie",
+			w:    httptest.NewRecorder(),
+			r: func() *http.Request {
+				return httptest.NewRequest(http.MethodGet, "/logout", http.NoBody)
+			},
+			userSessionStore: func() SessionStore[UserSessionData] {
+				return NewMockSessionStore[UserSessionData](t)
+			},
+			checkCookie: func(cookies []*http.Cookie) {
+				assert.Empty(t, cookies)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, err := New(
+				Config{
+					WebauthnConfig: &webauthn.Config{
+						RPDisplayName: "Passkey Test",
+						RPID:          "localhost",
+						RPOrigins:     []string{"localhost"},
+					},
+					UserStore:        NewMockUserStore(t),
+					AuthSessionStore: NewMockSessionStore[webauthn.SessionData](t),
+					UserSessionStore: tt.userSessionStore(),
+				},
+			)
+			require.NoError(t, err)
+
+			p.Logout(tt.w, tt.r())
+
+			if tt.checkCookie != nil {
+				tt.checkCookie(tt.w.Result().Cookies())
 			}
 		})
 	}

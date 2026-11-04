@@ -49,13 +49,55 @@ type AuthenticatorData struct {
 	ExtData  []byte                 `json:"ext_data"`
 }
 
+// AttestedCredentialData is a variable-length byte array added to the authenticator data when generating an attestation
+// object for a credential.
+//
+// Specification: §6.5.2. Attested Credential Data (https://www.w3.org/TR/webauthn/#sctn-attested-credential-data)
 type AttestedCredentialData struct {
-	AAGUID       []byte `json:"aaguid"`
+	// AAGUID is the 16-byte Authenticator Attestation GUID, a unique identifier indicating the type of the
+	// authenticator (i.e. make and model).
+	AAGUID []byte `json:"aaguid"`
+
+	// CredentialID is the credential identifier whose length is prepended as a 16-bit unsigned big-endian integer.
 	CredentialID []byte `json:"credential_id"`
 
-	// The raw credential public key bytes received from the attestation data.
+	// CredentialPublicKey is the CBOR-encoded credential public key using the COSE_Key format defined in
+	// Section 7 of [RFC9052].
 	CredentialPublicKey []byte `json:"public_key"`
 }
+
+// CredentialMediationRequirement represents mediation requirements for clients. When making a request via get(options)
+// or create(options), developers can set a case-by-case requirement for user mediation by choosing the appropriate
+// CredentialMediationRequirement enum value.
+//
+// See https://www.w3.org/TR/credential-management-1/#mediation-requirements
+type CredentialMediationRequirement string
+
+const (
+	// MediationDefault lets the browser choose the mediation flow completely as if it wasn't specified at all.
+	MediationDefault CredentialMediationRequirement = ""
+
+	// MediationSilent indicates user mediation is suppressed for the given operation. If the operation can be performed
+	// without user involvement, wonderful. If user involvement is necessary, then the operation will return null rather
+	// than involving the user.
+	MediationSilent CredentialMediationRequirement = "silent"
+
+	// MediationOptional indicates if credentials can be handed over for a given operation without user mediation, they
+	// will be. If user mediation is required, then the user agent will involve the user in the decision.
+	MediationOptional CredentialMediationRequirement = "optional"
+
+	// MediationConditional indicates for get(), discovered credentials are presented to the user in a non-modal dialog
+	// along with an indication of the origin which is requesting credentials. If the user makes a gesture outside of
+	// the dialog, the dialog closes without resolving or rejecting the Promise returned by the get() method and without
+	// causing a user-visible error condition. If the user makes a gesture that selects a credential, that credential is
+	// returned to the caller. The prevent silent access flag is treated as being true regardless of its actual value:
+	// the conditional behavior always involves user mediation of some sort if applicable credentials are discovered.
+	MediationConditional CredentialMediationRequirement = "conditional"
+
+	// MediationRequired indicates the user agent will not hand over credentials without user mediation, even if the
+	// prevent silent access flag is unset for an origin.
+	MediationRequired CredentialMediationRequirement = "required"
+)
 
 // AuthenticatorAttachment represents the IDL enum of the same name, and is used as part of the Authenticator Selection
 // Criteria.
@@ -161,13 +203,13 @@ const (
 type UserVerificationRequirement string
 
 const (
-	// VerificationRequired User verification is required to create/release a credential
+	// VerificationRequired User verification is required to create/release a credential.
 	VerificationRequired UserVerificationRequirement = "required"
 
-	// VerificationPreferred User verification is preferred to create/release a credential
-	VerificationPreferred UserVerificationRequirement = "preferred" // This is the default
+	// VerificationPreferred User verification is preferred to create/release a credential.
+	VerificationPreferred UserVerificationRequirement = "preferred" // This is the default.
 
-	// VerificationDiscouraged The authenticator should not verify the user for the credential
+	// VerificationDiscouraged The authenticator should not verify the user for the credential.
 	VerificationDiscouraged UserVerificationRequirement = "discouraged"
 )
 
@@ -182,7 +224,7 @@ type AuthenticatorFlags byte
 // The bits that do not have flags are reserved for future use.
 const (
 	// FlagUserPresent Bit 00000001 in the byte sequence. Tells us if user is present. Also referred to as the UP flag.
-	FlagUserPresent AuthenticatorFlags = 1 << iota // Referred to as UP
+	FlagUserPresent AuthenticatorFlags = 1 << iota // Referred to as UP.
 
 	// FlagRFU1 is a reserved for future use flag.
 	FlagRFU1
@@ -193,7 +235,7 @@ const (
 
 	// FlagBackupEligible Bit 00001000 in the byte sequence. Tells us if a backup is eligible for device. Also referred
 	// to as the BE flag.
-	FlagBackupEligible // Referred to as BE
+	FlagBackupEligible // Referred to as BE.
 
 	// FlagBackupState Bit 00010000 in the byte sequence. Tells us if a backup state for device. Also referred to as the
 	// BS flag.
@@ -276,7 +318,7 @@ func (a *AuthenticatorData) Unmarshal(rawAuthData []byte) (err error) {
 			}
 
 			attDataLen := len(a.AttData.AAGUID) + 2 + len(a.AttData.CredentialID) + len(a.AttData.CredentialPublicKey)
-			remaining = remaining - attDataLen
+			remaining -= attDataLen
 		} else {
 			return ErrBadRequest.WithDetails("Attested credential flag set but data is missing")
 		}
@@ -319,7 +361,7 @@ func (a *AuthenticatorData) unmarshalAttestedData(rawAuthData []byte) (err error
 
 	a.AttData.CredentialPublicKey, err = unmarshalCredentialPublicKey(rawAuthData[55+idLength:])
 	if err != nil {
-		return ErrBadRequest.WithDetails(fmt.Sprintf("Could not unmarshal Credential Public Key: %v", err))
+		return ErrBadRequest.WithDetails(fmt.Sprintf("Could not unmarshal Credential Public Key: %v", err)).WithError(err)
 	}
 
 	return nil
@@ -353,31 +395,30 @@ func ResidentKeyNotRequired() *bool {
 	return &required
 }
 
-// Verify on AuthenticatorData handles Steps 9 through 12 for Registration
-// and Steps 11 through 14 for Assertion.
-func (a *AuthenticatorData) Verify(rpIdHash []byte, appIDHash []byte, userVerificationRequired bool) error {
-
-	// Registration Step 9 & Assertion Step 11
+// Verify on AuthenticatorData handles Steps 13 through 15 & 17 for Registration
+// and Steps 15 through 18 for Assertion.
+func (a *AuthenticatorData) Verify(rpIdHash []byte, appIDHash []byte, userVerificationRequired bool, userPresenceRequired bool) (err error) {
+	// Registration Step 13 & Assertion Step 15
 	// Verify that the RP ID hash in authData is indeed the SHA-256
 	// hash of the RP ID expected by the RP.
-	if !bytes.Equal(a.RPIDHash[:], rpIdHash) && !bytes.Equal(a.RPIDHash[:], appIDHash) {
+	if !bytes.Equal(a.RPIDHash, rpIdHash) && !bytes.Equal(a.RPIDHash, appIDHash) {
 		return ErrVerification.WithInfo(fmt.Sprintf("RP Hash mismatch. Expected %x and Received %x", a.RPIDHash, rpIdHash))
 	}
 
-	// Registration Step 10 & Assertion Step 12
+	// Registration Step 15 & Assertion Step 16
 	// Verify that the User Present bit of the flags in authData is set.
-	if !a.Flags.UserPresent() {
-		return ErrVerification.WithInfo(fmt.Sprintln("User presence flag not set by authenticator"))
+	if userPresenceRequired && !a.Flags.UserPresent() {
+		return ErrVerification.WithInfo("User presence required but flag not set by authenticator")
 	}
 
-	// Registration Step 11 & Assertion Step 13
+	// Registration Step 15 & Assertion Step 17
 	// If user verification is required for this assertion, verify that
 	// the User Verified bit of the flags in authData is set.
 	if userVerificationRequired && !a.Flags.UserVerified() {
-		return ErrVerification.WithInfo(fmt.Sprintln("User verification required but flag not set by authenticator"))
+		return ErrVerification.WithInfo("User verification required but flag not set by authenticator")
 	}
 
-	// Registration Step 12 & Assertion Step 14
+	// Registration Step 17 & Assertion Step 18
 	// Verify that the values of the client extension outputs in clientExtensionResults
 	// and the authenticator extension outputs in the extensions in authData are as
 	// expected, considering the client extension input values that were given as the

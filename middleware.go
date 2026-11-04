@@ -4,8 +4,11 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
+
+type AuthUserIDKey string
 
 // Auth implements a middleware handler for adding passkey http auth to a route.
 // It checks if the request has a valid session cookie and if the session is still valid.
@@ -15,7 +18,7 @@ import (
 //
 // Otherwise:
 //   - `onFail` handler is called and the next handler is not executed.
-func (p *Passkey) Auth(userIDKey string, onSuccess, onFail http.HandlerFunc) func(next http.Handler) http.Handler {
+func (p *Passkey) Auth(userIDKey AuthUserIDKey, onSuccess, onFail http.HandlerFunc) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			sid, err := r.Cookie(p.cookieSettings.userSessionName)
@@ -60,13 +63,30 @@ func Unauthorized(w http.ResponseWriter, _ *http.Request) {
 
 // RedirectUnauthorized redirects the user to the target URL with a 401 Unauthorized status code.
 func RedirectUnauthorized(target url.URL) http.HandlerFunc {
+	if !isLocalRedirectTarget(target) {
+		return Unauthorized
+	}
+
+	targetURL := target.String()
+
 	return func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, target.String(), http.StatusSeeOther)
+		//nolint:gosec // G710: target is validated as a local URL before the closure is created.
+		http.Redirect(w, r, targetURL, http.StatusSeeOther)
 	}
 }
 
+func isLocalRedirectTarget(target url.URL) bool {
+	if target.IsAbs() || target.Host != "" || target.User != nil || target.Opaque != "" {
+		return false
+	}
+
+	// Network-path references (//host/path) and backslashes can be interpreted
+	// as cross-origin URLs by user agents even when URL.Scheme is empty.
+	return !strings.HasPrefix(target.Path, "//") && !strings.Contains(target.Path, `\`)
+}
+
 // UserIDFromCtx returns the user ID from the request context. If the userID is not found, it returns nil and false.
-func UserIDFromCtx(ctx context.Context, pkUserKey string) ([]byte, bool) {
+func UserIDFromCtx(ctx context.Context, pkUserKey AuthUserIDKey) ([]byte, bool) {
 	if ctx.Value(pkUserKey) == nil {
 		return nil, false
 	}
