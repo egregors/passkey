@@ -130,7 +130,7 @@ func (s *SessionStore[T]) Create(data T) (string, error) {
 		return "", err
 	}
 
-	// FIXME: there could be collisions, but in prepuce of example we don't care
+	// FIXME: there could be collisions, but in purpose of example we don't care
 	s.sessions[sID] = data
 
 	return sID, nil
