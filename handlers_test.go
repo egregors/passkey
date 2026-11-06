@@ -839,12 +839,9 @@ func TestPasskey_finishLogin(t *testing.T) {
 			loginSessionStore: func() SessionStore[webauthn.SessionData] {
 				aStore := NewMockSessionStore[webauthn.SessionData](t)
 				aStore.EXPECT().
-					Get("session-token-1234").
+					Consume("session-token-1234").
 					Times(1).
 					Return(&webauthn.SessionData{UserID: []byte("1234-5678-9012-3456")}, true)
-				aStore.EXPECT().
-					Delete("session-token-1234").
-					Times(1)
 
 				return aStore
 			},
@@ -913,7 +910,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 			loginSessionStore: func() SessionStore[webauthn.SessionData] {
 				aStore := NewMockSessionStore[webauthn.SessionData](t)
 				aStore.EXPECT().
-					Get("session-token-1234").
+					Consume("session-token-1234").
 					Times(1).
 					Return(nil, false)
 
@@ -954,7 +951,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 			loginSessionStore: func() SessionStore[webauthn.SessionData] {
 				aStore := NewMockSessionStore[webauthn.SessionData](t)
 				aStore.EXPECT().
-					Get("session-token-1234").
+					Consume("session-token-1234").
 					Times(1).
 					Return(&webauthn.SessionData{UserID: []byte("1234-5678-9012-3456")}, true)
 
@@ -995,7 +992,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 			loginSessionStore: func() SessionStore[webauthn.SessionData] {
 				aStore := NewMockSessionStore[webauthn.SessionData](t)
 				aStore.EXPECT().
-					Get("session-token-1234").
+					Consume("session-token-1234").
 					Times(1).
 					Return(&webauthn.SessionData{UserID: []byte("1234-5678-9012-3456")}, true)
 
@@ -1046,7 +1043,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 			loginSessionStore: func() SessionStore[webauthn.SessionData] {
 				aStore := NewMockSessionStore[webauthn.SessionData](t)
 				aStore.EXPECT().
-					Get("session-token-1234").
+					Consume("session-token-1234").
 					Times(1).
 					Return(&webauthn.SessionData{UserID: []byte("1234-5678-9012-3456")}, true)
 
@@ -1097,12 +1094,9 @@ func TestPasskey_finishLogin(t *testing.T) {
 			loginSessionStore: func() SessionStore[webauthn.SessionData] {
 				aStore := NewMockSessionStore[webauthn.SessionData](t)
 				aStore.EXPECT().
-					Get("session-token-1234").
+					Consume("session-token-1234").
 					Times(1).
 					Return(&webauthn.SessionData{UserID: []byte("1234-5678-9012-3456")}, true)
-				aStore.EXPECT().
-					Delete("session-token-1234").
-					Times(1)
 
 				return aStore
 			},
@@ -1149,8 +1143,14 @@ func TestPasskey_finishLogin(t *testing.T) {
 			require.NoError(t, err)
 			p.webAuthn = tt.webAuthn()
 
-			limitRequestBody(p.finishLogin)(tt.w, tt.r())
+			req := tt.r()
+			limitRequestBody(p.finishLogin)(tt.w, req)
 			assert.Equal(t, tt.wantStatus, tt.w.Code)
+			if _, cookieErr := req.Cookie(p.cookieSettings.loginSessionName); cookieErr == nil {
+				assertLoginCookieCleared(t, p, tt.w)
+			} else {
+				assert.Empty(t, tt.w.Result().Cookies())
+			}
 
 			if tt.checkResp != nil {
 				tt.checkResp(tt.w.Body.Bytes())
