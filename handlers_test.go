@@ -267,7 +267,7 @@ func TestPasskey_beginRegistration(t *testing.T) {
 			require.NoError(t, err)
 			p.webAuthn = tt.webAuthn()
 
-			p.beginRegistration(tt.w, tt.r)
+			limitRequestBody(p.beginRegistration)(tt.w, tt.r)
 			assert.Equal(t, tt.wantStatus, tt.w.Code)
 
 			if tt.checkResp != nil {
@@ -551,7 +551,7 @@ func TestPasskey_finishRegistration(t *testing.T) {
 			require.NoError(t, err)
 			p.webAuthn = tt.webAuthn()
 
-			p.finishRegistration(tt.w, tt.r())
+			limitRequestBody(p.finishRegistration)(tt.w, tt.r())
 			assert.Equal(t, tt.wantStatus, tt.w.Code)
 
 			if tt.checkResp != nil {
@@ -757,7 +757,7 @@ func TestPasskey_beginLogin(t *testing.T) {
 			require.NoError(t, err)
 			p.webAuthn = tt.webAuthn()
 
-			p.beginLogin(tt.w, tt.r)
+			limitRequestBody(p.beginLogin)(tt.w, tt.r)
 			assert.Equal(t, tt.wantStatus, tt.w.Code)
 
 			if tt.checkResp != nil {
@@ -1149,7 +1149,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 			require.NoError(t, err)
 			p.webAuthn = tt.webAuthn()
 
-			p.finishLogin(tt.w, tt.r())
+			limitRequestBody(p.finishLogin)(tt.w, tt.r())
 			assert.Equal(t, tt.wantStatus, tt.w.Code)
 
 			if tt.checkResp != nil {

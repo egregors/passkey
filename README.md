@@ -247,6 +247,13 @@ make up
 
 ## API
 
+All four passkey endpoints accept request bodies up to 1 MiB. Larger bodies return
+HTTP 413 before the handler accesses storage or WebAuthn, including when
+`Content-Length` is unknown. Usernames must contain between 1 and 256 UTF-8 bytes;
+invalid lengths return HTTP 400 before the username is logged or passed to storage.
+These limits are fixed and apply to the decoded username and the entire raw request
+body, respectively, including any trailing data.
+
 | Method                                                                                            | Description                                                                                         |
 |---------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------|
 | `New(cfg Config, opts ...Option) (*Passkey, error)`                                               | Creates a new Passkey instance.                                                                     |

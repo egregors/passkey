@@ -168,10 +168,10 @@ func (p *Passkey) setupWebAuthn() error {
 }
 
 func (p *Passkey) setupRoutes() {
-	p.mux.HandleFunc(pathRegisterBegin, p.beginRegistration)
-	p.mux.HandleFunc(pathRegisterFinish, p.finishRegistration)
-	p.mux.HandleFunc(pathLoginBegin, p.beginLogin)
-	p.mux.HandleFunc(pathLoginFinish, p.finishLogin)
+	p.mux.HandleFunc(pathRegisterBegin, limitRequestBody(p.beginRegistration))
+	p.mux.HandleFunc(pathRegisterFinish, limitRequestBody(p.finishRegistration))
+	p.mux.HandleFunc(pathLoginBegin, limitRequestBody(p.beginLogin))
+	p.mux.HandleFunc(pathLoginFinish, limitRequestBody(p.finishLogin))
 
 	p.staticMux.Handle("/", http.FileServer(http.Dir("./static")))
 }
