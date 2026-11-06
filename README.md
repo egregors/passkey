@@ -260,6 +260,12 @@ implement `Consume` as an atomic retrieve-and-delete operation, including across
 application instances sharing storage. Requests rejected by the body limit do not
 reach the handler and do not consume a challenge.
 
+Login challenges expire on the server after at most five minutes, independently of
+cookie expiration and storage TTL. A shorter expiration set by WebAuthn is preserved.
+Expired sessions and legacy login sessions without an expiration are rejected and
+consumed before user lookup or signature verification; the client must start a new
+login ceremony. Session stores must also clean up expired records to reclaim space.
+
 | Method                                                                                            | Description                                                                                         |
 |---------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------|
 | `New(cfg Config, opts ...Option) (*Passkey, error)`                                               | Creates a new Passkey instance.                                                                     |
