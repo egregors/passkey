@@ -1,13 +1,43 @@
 package passkey
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 )
+
+const (
+	maxRequestBodyBytes = 1 << 20 // 1 MiB, including WebAuthn attestation responses.
+	maxUsernameBytes    = 256
+)
+
+// limitRequestBody checks the entire body before handlers can modify sessions or users.
+// Buffering also covers oversized trailing data that a decoder might otherwise ignore.
+func limitRequestBody(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		limited := http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
+		defer limited.Close()
+
+		body, err := io.ReadAll(limited)
+		if err != nil {
+			var tooLarge *http.MaxBytesError
+			if errors.As(err, &tooLarge) {
+				JSONResponse(w, "request body exceeds 1 MiB", http.StatusRequestEntityTooLarge)
+			} else {
+				JSONResponse(w, "can't read request body", http.StatusBadRequest)
+			}
+			return
+		}
+
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		next(w, r)
+	}
+}
 
 func genUserID() ([]byte, error) {
 	b := make([]byte, 32)
@@ -409,6 +439,9 @@ func getUsername(r *http.Request) (string, error) {
 
 	if u.Username == "" {
 		return "", ErrNoUsername
+	}
+	if len(u.Username) > maxUsernameBytes {
+		return "", ErrUsernameTooLong
 	}
 
 	return u.Username, nil
