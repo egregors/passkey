@@ -841,7 +841,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 				aStore.EXPECT().
 					Consume("session-token-1234").
 					Times(1).
-					Return(&webauthn.SessionData{UserID: []byte("1234-5678-9012-3456")}, true)
+					Return(&webauthn.SessionData{UserID: []byte("1234-5678-9012-3456"), Expires: time.Now().Add(5 * time.Minute)}, true)
 
 				return aStore
 			},
@@ -953,7 +953,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 				aStore.EXPECT().
 					Consume("session-token-1234").
 					Times(1).
-					Return(&webauthn.SessionData{UserID: []byte("1234-5678-9012-3456")}, true)
+					Return(&webauthn.SessionData{UserID: []byte("1234-5678-9012-3456"), Expires: time.Now().Add(5 * time.Minute)}, true)
 
 				return aStore
 			},
@@ -994,7 +994,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 				aStore.EXPECT().
 					Consume("session-token-1234").
 					Times(1).
-					Return(&webauthn.SessionData{UserID: []byte("1234-5678-9012-3456")}, true)
+					Return(&webauthn.SessionData{UserID: []byte("1234-5678-9012-3456"), Expires: time.Now().Add(5 * time.Minute)}, true)
 
 				return aStore
 			},
@@ -1045,7 +1045,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 				aStore.EXPECT().
 					Consume("session-token-1234").
 					Times(1).
-					Return(&webauthn.SessionData{UserID: []byte("1234-5678-9012-3456")}, true)
+					Return(&webauthn.SessionData{UserID: []byte("1234-5678-9012-3456"), Expires: time.Now().Add(5 * time.Minute)}, true)
 
 				return aStore
 			},
@@ -1096,7 +1096,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 				aStore.EXPECT().
 					Consume("session-token-1234").
 					Times(1).
-					Return(&webauthn.SessionData{UserID: []byte("1234-5678-9012-3456")}, true)
+					Return(&webauthn.SessionData{UserID: []byte("1234-5678-9012-3456"), Expires: time.Now().Add(5 * time.Minute)}, true)
 
 				return aStore
 			},

@@ -244,6 +244,10 @@ func (p *Passkey) beginLogin(w http.ResponseWriter, r *http.Request) {
 	p.log.Debugf("got options")
 
 	p.log.Debugf("try to save session")
+	expires := time.Now().Add(p.cookieSettings.loginSessionMaxAge)
+	if session.Expires.IsZero() || session.Expires.After(expires) {
+		session.Expires = expires
+	}
 	t, err := p.loginSessionStore.Create(*session)
 	if err != nil {
 		err = fmt.Errorf("can't save session: %w", err)
@@ -296,6 +300,12 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p.log.Debugf("got session data")
+
+	if session.Expires.IsZero() || !time.Now().Before(session.Expires) {
+		err = fmt.Errorf("login session has expired")
+
+		return
+	}
 
 	p.log.Debugf("try to get user from repo")
 	user, err := p.userStore.Get(session.UserID)

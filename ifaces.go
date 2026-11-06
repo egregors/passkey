@@ -39,6 +39,7 @@ type UserStore interface {
 // SessionStore is a storage for session data.
 // Consume must atomically retrieve and delete the session identified by token to prevent replay.
 // Login and registration handlers consume ceremony sessions before verification, including failed attempts.
+// Implementations must also clean up expired records to reclaim storage; handlers enforce expiration independently.
 type SessionStore[T any] interface {
 	Create(data T) (string, error)
 	Delete(token string)
