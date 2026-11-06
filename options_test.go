@@ -110,9 +110,10 @@ func TestWithInsecureCookie(t *testing.T) {
 				RPID:          "localhost",
 				RPOrigins:     []string{"localhost:8080"},
 			},
-			UserStore:        NewMockUserStore(t),
-			AuthSessionStore: NewMockSessionStore[webauthn.SessionData](t),
-			UserSessionStore: NewMockSessionStore[UserSessionData](t),
+			UserStore:                NewMockUserStore(t),
+			LoginSessionStore:        NewMockSessionStore[webauthn.SessionData](t),
+			RegistrationSessionStore: NewMockSessionStore[RegistrationSessionData](t),
+			UserSessionStore:         NewMockSessionStore[UserSessionData](t),
 		},
 	)
 	require.NoError(t, err)
@@ -126,9 +127,10 @@ func TestWithInsecureCookie(t *testing.T) {
 				RPID:          "localhost",
 				RPOrigins:     []string{"localhost:8080"},
 			},
-			UserStore:        NewMockUserStore(t),
-			AuthSessionStore: NewMockSessionStore[webauthn.SessionData](t),
-			UserSessionStore: NewMockSessionStore[UserSessionData](t),
+			UserStore:                NewMockUserStore(t),
+			LoginSessionStore:        NewMockSessionStore[webauthn.SessionData](t),
+			RegistrationSessionStore: NewMockSessionStore[RegistrationSessionData](t),
+			UserSessionStore:         NewMockSessionStore[UserSessionData](t),
 		},
 		WithInsecureCookie(),
 	)
@@ -138,28 +140,32 @@ func TestWithInsecureCookie(t *testing.T) {
 
 func TestWithSessionCookieNamePrefix(t *testing.T) {
 	tests := []struct {
-		name                string
-		prefix              string
-		wantAuthSessionName string
-		wantUserSessionName string
+		name                        string
+		prefix                      string
+		wantLoginSessionName        string
+		wantRegistrationSessionName string
+		wantUserSessionName         string
 	}{
 		{
-			name:                "empty: default prefix will be used",
-			prefix:              "",
-			wantAuthSessionName: "pkAsid",
-			wantUserSessionName: "pkUsid",
+			name:                        "empty: default prefix will be used",
+			prefix:                      "",
+			wantLoginSessionName:        "pkLsid",
+			wantRegistrationSessionName: "pkRsid",
+			wantUserSessionName:         "pkUsid",
 		},
 		{
-			name:                "custom prefix",
-			prefix:              "custom",
-			wantAuthSessionName: "customAsid",
-			wantUserSessionName: "customUsid",
+			name:                        "custom prefix",
+			prefix:                      "custom",
+			wantLoginSessionName:        "customLsid",
+			wantRegistrationSessionName: "customRsid",
+			wantUserSessionName:         "customUsid",
 		},
 		{
-			name:                "custom prefix with space and multiple words",
-			prefix:              "custom prefix",
-			wantAuthSessionName: "custom prefixAsid",
-			wantUserSessionName: "custom prefixUsid",
+			name:                        "custom prefix with space and multiple words",
+			prefix:                      "custom prefix",
+			wantLoginSessionName:        "custom prefixLsid",
+			wantRegistrationSessionName: "custom prefixRsid",
+			wantUserSessionName:         "custom prefixUsid",
 		},
 	}
 	for _, tt := range tests {
@@ -171,14 +177,16 @@ func TestWithSessionCookieNamePrefix(t *testing.T) {
 						RPID:          "localhost",
 						RPOrigins:     []string{"localhost:8080"},
 					},
-					UserStore:        NewMockUserStore(t),
-					AuthSessionStore: NewMockSessionStore[webauthn.SessionData](t),
-					UserSessionStore: NewMockSessionStore[UserSessionData](t),
+					UserStore:                NewMockUserStore(t),
+					LoginSessionStore:        NewMockSessionStore[webauthn.SessionData](t),
+					RegistrationSessionStore: NewMockSessionStore[RegistrationSessionData](t),
+					UserSessionStore:         NewMockSessionStore[UserSessionData](t),
 				},
 				WithSessionCookieNamePrefix(tt.prefix),
 			)
 			require.NoError(t, err)
-			assert.Equalf(t, tt.wantAuthSessionName, p.cookieSettings.authSessionName, "WithSessionCookieNamePrefix(%v)", tt.prefix)
+			assert.Equalf(t, tt.wantLoginSessionName, p.cookieSettings.loginSessionName, "WithSessionCookieNamePrefix(%v)", tt.prefix)
+			assert.Equalf(t, tt.wantRegistrationSessionName, p.cookieSettings.registrationSessionName, "WithSessionCookieNamePrefix(%v)", tt.prefix)
 			assert.Equalf(t, tt.wantUserSessionName, p.cookieSettings.userSessionName, "WithSessionCookieNamePrefix(%v)", tt.prefix)
 		})
 	}
@@ -215,9 +223,10 @@ func TestWithUserSessionMaxAge(t *testing.T) {
 						RPID:          "localhost",
 						RPOrigins:     []string{"localhost:8080"},
 					},
-					UserStore:        NewMockUserStore(t),
-					AuthSessionStore: NewMockSessionStore[webauthn.SessionData](t),
-					UserSessionStore: NewMockSessionStore[UserSessionData](t),
+					UserStore:                NewMockUserStore(t),
+					LoginSessionStore:        NewMockSessionStore[webauthn.SessionData](t),
+					RegistrationSessionStore: NewMockSessionStore[RegistrationSessionData](t),
+					UserSessionStore:         NewMockSessionStore[UserSessionData](t),
 				},
 				WithUserSessionMaxAge(tt.maxAge),
 			)

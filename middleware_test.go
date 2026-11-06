@@ -201,9 +201,10 @@ func TestAuth(t *testing.T) {
 					RPID:          "localhost",
 					RPOrigins:     []string{"localhost"},
 				},
-				UserStore:        NewMockUserStore(t),
-				AuthSessionStore: NewMockSessionStore[webauthn.SessionData](t),
-				UserSessionStore: tt.args.userSessionStore(),
+				UserStore:                NewMockUserStore(t),
+				LoginSessionStore:        NewMockSessionStore[webauthn.SessionData](t),
+				RegistrationSessionStore: NewMockSessionStore[RegistrationSessionData](t),
+				UserSessionStore:         tt.args.userSessionStore(),
 			},
 		)
 		require.NoError(t, err)

@@ -1,11 +1,22 @@
 package passkey
 
 import (
+	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
 )
+
+func genUserID() ([]byte, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return nil, fmt.Errorf("can't generate user id: %w", err)
+	}
+
+	return b, nil
+}
 
 func (p *Passkey) beginRegistration(w http.ResponseWriter, r *http.Request) {
 	p.log.Infof(">>> begin registration")
@@ -28,14 +39,27 @@ func (p *Passkey) beginRegistration(w http.ResponseWriter, r *http.Request) {
 	}
 	p.log.Debugf("got username: %s", username)
 
-	p.log.Debugf("try to create user")
-	user, err := p.userStore.Create(username)
-	if err != nil {
-		err = fmt.Errorf("can't create user: %w", err)
+	if existingUser, getErr := p.userStore.GetByName(username); getErr == nil && existingUser != nil {
+		err = fmt.Errorf("%w: %s", ErrUserAlreadyExists, username)
+
+		return
+	} else if getErr != nil && !errors.Is(getErr, ErrUserNotFound) {
+		err = fmt.Errorf("can't check user: %w", getErr)
 
 		return
 	}
-	p.log.Debugf("user created: %s", user.WebAuthnName())
+
+	userID, err := genUserID()
+	if err != nil {
+		err = fmt.Errorf("can't generate user id: %w", err)
+
+		return
+	}
+
+	user := &transientUser{
+		id:   userID,
+		name: username,
+	}
 
 	p.log.Debugf("try to get options from webauthn")
 	options, session, err := p.webAuthn.BeginRegistration(user)
@@ -47,7 +71,18 @@ func (p *Passkey) beginRegistration(w http.ResponseWriter, r *http.Request) {
 	p.log.Debugf("got options")
 
 	p.log.Debugf("try to save session")
-	t, err := p.authSessionStore.Create(*session)
+	expires := time.Now().Add(p.cookieSettings.registrationSessionMaxAge)
+	if !session.Expires.IsZero() && session.Expires.Before(expires) {
+		expires = session.Expires
+	} else {
+		session.Expires = expires
+	}
+
+	t, err := p.registrationSessionStore.Create(RegistrationSessionData{
+		Username: username,
+		Session:  *session,
+		Expires:  expires,
+	})
 	if err != nil {
 		err = fmt.Errorf("can't save session: %w", err)
 
@@ -56,7 +91,7 @@ func (p *Passkey) beginRegistration(w http.ResponseWriter, r *http.Request) {
 	p.log.Debugf("session saved")
 
 	p.log.Debugf("setting cookie")
-	p.setAuthSessionCookie(w, t)
+	p.setRegistrationSessionCookie(w, t)
 
 	// return the options generated with the session key
 	// options.publicKey contain our registration options
@@ -71,17 +106,17 @@ func (p *Passkey) finishRegistration(w http.ResponseWriter, r *http.Request) {
 	var err error
 	defer func() {
 		if err != nil {
+			p.deleteSessionCookie(p.cookieSettings.registrationSessionName, w)
 			p.log.Errorf("%s", err.Error())
 			JSONResponse(w, err.Error(), http.StatusBadRequest)
 			p.log.Debugf("cleaned up session cookie")
 			p.log.Debugf("<<< finish registration: done with error")
 		}
-		p.deleteAuthSessionCookie(p.cookieSettings.authSessionName, w)
 	}()
 
 	// Get the session key from cookie
 	p.log.Debugf("getting session id from cookie")
-	sid, err := r.Cookie(p.cookieSettings.authSessionName)
+	sid, err := r.Cookie(p.cookieSettings.registrationSessionName)
 	if err != nil {
 		err = fmt.Errorf("can't get session id: %w", err)
 
@@ -89,27 +124,29 @@ func (p *Passkey) finishRegistration(w http.ResponseWriter, r *http.Request) {
 	}
 	p.log.Debugf("got session id")
 
-	// Get the session data stored from the function above
-	p.log.Debugf("try to get session data")
-	session, ok := p.authSessionStore.Get(sid.Value)
-	if !ok {
+	// Atomically consume registration session data
+	p.log.Debugf("try to consume session data")
+	regData, ok := p.registrationSessionStore.Consume(sid.Value)
+	if !ok || regData == nil {
 		err = fmt.Errorf("can't get session data")
 
 		return
 	}
 	p.log.Debugf("got session data")
 
-	p.log.Debugf("try to get user from user store")
-	user, err := p.userStore.Get(session.UserID)
-	if err != nil {
-		err = fmt.Errorf("can't get user: %w", err)
+	if !regData.Expires.IsZero() && regData.Expires.Before(time.Now()) {
+		err = fmt.Errorf("registration session has expired")
 
 		return
 	}
-	p.log.Debugf("got user: %s", user.WebAuthnName())
+
+	user := &transientUser{
+		id:   regData.Session.UserID,
+		name: regData.Username,
+	}
 
 	p.log.Debugf("try to get credential from webauthn")
-	credential, err := p.webAuthn.FinishRegistration(user, *session, r)
+	credential, err := p.webAuthn.FinishRegistration(user, regData.Session, r)
 	if err != nil {
 		err = fmt.Errorf("can't finish registration: %w", err)
 
@@ -117,20 +154,20 @@ func (p *Passkey) finishRegistration(w http.ResponseWriter, r *http.Request) {
 	}
 	p.log.Debugf("got credential")
 
-	p.log.Debugf("putting credential to user")
-	user.PutCredential(*credential)
-	p.log.Debugf("try to save user")
-	err = p.userStore.Update(user)
+	p.log.Debugf("try to create user")
+	_, err = p.userStore.Create(NewUser{
+		Username:   regData.Username,
+		UserID:     regData.Session.UserID,
+		Credential: *credential,
+	})
 	if err != nil {
-		err = fmt.Errorf("can't save user: %w", err)
+		err = fmt.Errorf("can't create user: %w", err)
 
 		return
 	}
-	p.log.Debugf("user saved")
+	p.log.Debugf("user created")
 
-	p.log.Debugf("deleting session data")
-	p.authSessionStore.Delete(sid.Value)
-
+	p.deleteSessionCookie(p.cookieSettings.registrationSessionName, w)
 	JSONResponse(w, "Registration Success", http.StatusOK)
 
 	p.log.Infof("<<< finish registration: done")
@@ -170,14 +207,14 @@ func (p *Passkey) beginLogin(w http.ResponseWriter, r *http.Request) {
 	options, session, err := p.webAuthn.BeginLogin(user)
 	if err != nil {
 		err = fmt.Errorf("can't begin login: %w", err)
-		p.deleteAuthSessionCookie(p.cookieSettings.authSessionName, w)
+		p.deleteSessionCookie(p.cookieSettings.loginSessionName, w)
 
 		return
 	}
 	p.log.Debugf("got options")
 
 	p.log.Debugf("try to save session")
-	t, err := p.authSessionStore.Create(*session)
+	t, err := p.loginSessionStore.Create(*session)
 	if err != nil {
 		err = fmt.Errorf("can't save session: %w", err)
 
@@ -186,7 +223,7 @@ func (p *Passkey) beginLogin(w http.ResponseWriter, r *http.Request) {
 	p.log.Debugf("session saved")
 
 	p.log.Debugf("setting cookie")
-	p.setAuthSessionCookie(w, t)
+	p.setLoginSessionCookie(w, t)
 
 	// return the options generated with the session key
 	// options.publicKey contain our registration options
@@ -209,7 +246,7 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 
 	// Get the session key from cookie
 	p.log.Debugf("getting session id from cookie")
-	sid, err := r.Cookie(p.cookieSettings.authSessionName)
+	sid, err := r.Cookie(p.cookieSettings.loginSessionName)
 	if err != nil {
 		err = fmt.Errorf("can't get session id: %w", err)
 
@@ -219,7 +256,7 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 
 	// Get the session data stored from the function above
 	p.log.Debugf("try to get session data")
-	session, ok := p.authSessionStore.Get(sid.Value)
+	session, ok := p.loginSessionStore.Get(sid.Value)
 	if !ok {
 		err = fmt.Errorf("can't get session data")
 
@@ -264,8 +301,8 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 
 	// Delete the login session data
 	p.log.Debugf("deleting session data and cookie")
-	p.authSessionStore.Delete(sid.Value)
-	p.deleteAuthSessionCookie(p.cookieSettings.authSessionName, w)
+	p.loginSessionStore.Delete(sid.Value)
+	p.deleteSessionCookie(p.cookieSettings.loginSessionName, w)
 
 	p.log.Debugf("try to save user session")
 	t, err := p.userSessionStore.Create(UserSessionData{
@@ -287,12 +324,21 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 	p.log.Infof("<<< finish login")
 }
 
-func (p *Passkey) setAuthSessionCookie(w http.ResponseWriter, value string) {
+func (p *Passkey) setLoginSessionCookie(w http.ResponseWriter, value string) {
 	p.setSessionCookie(
 		w,
-		p.cookieSettings.authSessionName,
+		p.cookieSettings.loginSessionName,
 		value,
-		p.cookieSettings.authSessionMaxAge,
+		p.cookieSettings.loginSessionMaxAge,
+	)
+}
+
+func (p *Passkey) setRegistrationSessionCookie(w http.ResponseWriter, value string) {
+	p.setSessionCookie(
+		w,
+		p.cookieSettings.registrationSessionName,
+		value,
+		p.cookieSettings.registrationSessionMaxAge,
 	)
 }
 
@@ -331,11 +377,11 @@ func (p *Passkey) Logout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	p.userSessionStore.Delete(sid.Value)
-	p.deleteAuthSessionCookie(p.cookieSettings.userSessionName, w)
+	p.deleteSessionCookie(p.cookieSettings.userSessionName, w)
 }
 
 // deleteSessionCookie deletes a cookie
-func (p *Passkey) deleteAuthSessionCookie(name string, w http.ResponseWriter) { //nolint:unparam // it's ok here
+func (p *Passkey) deleteSessionCookie(name string, w http.ResponseWriter) { //nolint:unparam // it's ok here
 	// Use the same scope and security attributes as the original cookie so the
 	// browser reliably expires that cookie instead of creating a second one.
 	//nolint:gosec // G124 cannot infer the secure defaults behind cookieSettings.

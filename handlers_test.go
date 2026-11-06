@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
@@ -76,21 +77,16 @@ func Test_getUsername(t *testing.T) {
 }
 
 func TestPasskey_beginRegistration(t *testing.T) {
-	user := NewMockUser(t)
-	user.EXPECT().
-		WebAuthnName().
-		Return("root@example.com")
-
 	tests := []struct {
-		name             string
-		w                *httptest.ResponseRecorder
-		r                *http.Request
-		userStore        func() UserStore
-		authSessionStore func() SessionStore[webauthn.SessionData]
-		webAuthn         func() deps.WebAuthnInterface
-		wantStatus       int
-		checkResp        func(body []byte)
-		checkCookie      func(cookies []*http.Cookie)
+		name                     string
+		w                        *httptest.ResponseRecorder
+		r                        *http.Request
+		userStore                func() UserStore
+		registrationSessionStore func() SessionStore[RegistrationSessionData]
+		webAuthn                 func() deps.WebAuthnInterface
+		wantStatus               int
+		checkResp                func(body []byte)
+		checkCookie              func(cookies []*http.Cookie)
 	}{
 		{
 			name: "succ: all good",
@@ -99,25 +95,25 @@ func TestPasskey_beginRegistration(t *testing.T) {
 			userStore: func() UserStore {
 				uStore := NewMockUserStore(t)
 				uStore.EXPECT().
-					Create("root@example.com").
+					GetByName("root@example.com").
 					Times(1).
-					Return(user, nil)
+					Return(nil, ErrUserNotFound)
 
 				return uStore
 			},
-			authSessionStore: func() SessionStore[webauthn.SessionData] {
-				aStore := NewMockSessionStore[webauthn.SessionData](t)
-				aStore.EXPECT().
-					Create(mock.AnythingOfType("webauthn.SessionData")).
+			registrationSessionStore: func() SessionStore[RegistrationSessionData] {
+				rStore := NewMockSessionStore[RegistrationSessionData](t)
+				rStore.EXPECT().
+					Create(mock.AnythingOfType("passkey.RegistrationSessionData")).
 					Times(1).
 					Return("session-token-1234", nil)
 
-				return aStore
+				return rStore
 			},
 			webAuthn: func() deps.WebAuthnInterface {
 				wa := deps.NewMockWebAuthnInterface(t)
 				wa.EXPECT().
-					BeginRegistration(user).
+					BeginRegistration(mock.Anything).
 					Times(1).
 					Return(&protocol.CredentialCreation{}, &webauthn.SessionData{}, nil)
 
@@ -133,10 +129,10 @@ func TestPasskey_beginRegistration(t *testing.T) {
 			checkCookie: func(cookies []*http.Cookie) {
 				assert.Len(t, cookies, 1)
 				c := cookies[0]
-				assert.Equal(t, camelCaseConcat(defaultSessionNamePrefix, defaultAuthSessionName), c.Name)
+				assert.Equal(t, camelCaseConcat(defaultSessionNamePrefix, defaultRegistrationSessionName), c.Name)
 				assert.Equal(t, "session-token-1234", c.Value)
 				assert.Equal(t, "/", c.Path)
-				assert.Equal(t, int(defaultAuthSessionMaxAge.Seconds()), c.MaxAge)
+				assert.Equal(t, int(defaultRegistrationSessionMaxAge.Seconds()), c.MaxAge)
 				assert.True(t, c.Secure)
 				assert.True(t, c.HttpOnly)
 				assert.Equal(t, http.SameSiteLaxMode, c.SameSite)
@@ -149,8 +145,8 @@ func TestPasskey_beginRegistration(t *testing.T) {
 			userStore: func() UserStore {
 				return NewMockUserStore(t)
 			},
-			authSessionStore: func() SessionStore[webauthn.SessionData] {
-				return NewMockSessionStore[webauthn.SessionData](t)
+			registrationSessionStore: func() SessionStore[RegistrationSessionData] {
+				return NewMockSessionStore[RegistrationSessionData](t)
 			},
 			webAuthn: func() deps.WebAuthnInterface {
 				return deps.NewMockWebAuthnInterface(t)
@@ -161,27 +157,28 @@ func TestPasskey_beginRegistration(t *testing.T) {
 			},
 		},
 		{
-			name: "err: can't create user",
+			name: "err: user already exists",
 			w:    httptest.NewRecorder(),
 			r:    httptest.NewRequest(http.MethodGet, "/", body("username", "root@example.com")),
 			userStore: func() UserStore {
+				existingUser := NewMockUser(t)
 				uStore := NewMockUserStore(t)
 				uStore.EXPECT().
-					Create("root@example.com").
+					GetByName("root@example.com").
 					Times(1).
-					Return(nil, assert.AnError)
+					Return(existingUser, nil)
 
 				return uStore
 			},
-			authSessionStore: func() SessionStore[webauthn.SessionData] {
-				return NewMockSessionStore[webauthn.SessionData](t)
+			registrationSessionStore: func() SessionStore[RegistrationSessionData] {
+				return NewMockSessionStore[RegistrationSessionData](t)
 			},
 			webAuthn: func() deps.WebAuthnInterface {
 				return deps.NewMockWebAuthnInterface(t)
 			},
 			wantStatus: http.StatusBadRequest,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "can't create user: ")
+				assert.Contains(t, string(body), "user already exists")
 			},
 		},
 		{
@@ -191,19 +188,19 @@ func TestPasskey_beginRegistration(t *testing.T) {
 			userStore: func() UserStore {
 				uStore := NewMockUserStore(t)
 				uStore.EXPECT().
-					Create("root@example.com").
+					GetByName("root@example.com").
 					Times(1).
-					Return(user, nil)
+					Return(nil, ErrUserNotFound)
 
 				return uStore
 			},
-			authSessionStore: func() SessionStore[webauthn.SessionData] {
-				return NewMockSessionStore[webauthn.SessionData](t)
+			registrationSessionStore: func() SessionStore[RegistrationSessionData] {
+				return NewMockSessionStore[RegistrationSessionData](t)
 			},
 			webAuthn: func() deps.WebAuthnInterface {
 				wa := deps.NewMockWebAuthnInterface(t)
 				wa.EXPECT().
-					BeginRegistration(user).
+					BeginRegistration(mock.Anything).
 					Times(1).
 					Return(nil, nil, assert.AnError)
 
@@ -221,25 +218,25 @@ func TestPasskey_beginRegistration(t *testing.T) {
 			userStore: func() UserStore {
 				uStore := NewMockUserStore(t)
 				uStore.EXPECT().
-					Create("root@example.com").
+					GetByName("root@example.com").
 					Times(1).
-					Return(user, nil)
+					Return(nil, ErrUserNotFound)
 
 				return uStore
 			},
-			authSessionStore: func() SessionStore[webauthn.SessionData] {
-				aStore := NewMockSessionStore[webauthn.SessionData](t)
-				aStore.EXPECT().
-					Create(mock.AnythingOfType("webauthn.SessionData")).
+			registrationSessionStore: func() SessionStore[RegistrationSessionData] {
+				rStore := NewMockSessionStore[RegistrationSessionData](t)
+				rStore.EXPECT().
+					Create(mock.AnythingOfType("passkey.RegistrationSessionData")).
 					Times(1).
 					Return("", assert.AnError)
 
-				return aStore
+				return rStore
 			},
 			webAuthn: func() deps.WebAuthnInterface {
 				wa := deps.NewMockWebAuthnInterface(t)
 				wa.EXPECT().
-					BeginRegistration(user).
+					BeginRegistration(mock.Anything).
 					Times(1).
 					Return(&protocol.CredentialCreation{}, &webauthn.SessionData{}, nil)
 
@@ -261,9 +258,10 @@ func TestPasskey_beginRegistration(t *testing.T) {
 						RPID:          "localhost",
 						RPOrigins:     []string{"localhost"},
 					},
-					UserStore:        tt.userStore(),
-					AuthSessionStore: tt.authSessionStore(),
-					UserSessionStore: NewMockSessionStore[UserSessionData](t),
+					UserStore:                tt.userStore(),
+					LoginSessionStore:        NewMockSessionStore[webauthn.SessionData](t),
+					RegistrationSessionStore: tt.registrationSessionStore(),
+					UserSessionStore:         NewMockSessionStore[UserSessionData](t),
 				},
 			)
 			require.NoError(t, err)
@@ -284,31 +282,26 @@ func TestPasskey_beginRegistration(t *testing.T) {
 }
 
 func TestPasskey_finishRegistration(t *testing.T) {
-	user := NewMockUser(t)
-	user.EXPECT().
-		PutCredential(mock.AnythingOfType("webauthn.Credential"))
-	user.EXPECT().
-		WebAuthnName().
-		Return("root@example.com")
+	createdUser := NewMockUser(t)
 
 	tests := []struct {
-		name             string
-		w                *httptest.ResponseRecorder
-		r                func() *http.Request
-		userStore        func() UserStore
-		authSessionStore func() SessionStore[webauthn.SessionData]
-		webAuthn         func() deps.WebAuthnInterface
-		wantStatus       int
-		checkResp        func(body []byte)
-		checkCookie      func(cookies []*http.Cookie)
+		name                     string
+		w                        *httptest.ResponseRecorder
+		r                        func() *http.Request
+		userStore                func() UserStore
+		registrationSessionStore func() SessionStore[RegistrationSessionData]
+		webAuthn                 func() deps.WebAuthnInterface
+		wantStatus               int
+		checkResp                func(body []byte)
+		checkCookie              func(cookies []*http.Cookie)
 	}{
 		{
 			name: "succ: all good",
 			w:    httptest.NewRecorder(),
 			r: func() *http.Request {
-				req := httptest.NewRequest(http.MethodPost, pathLoginFinish, http.NoBody)
+				req := httptest.NewRequest(http.MethodPost, pathRegisterFinish, http.NoBody)
 				req.AddCookie(&http.Cookie{
-					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultAuthSessionName),
+					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultRegistrationSessionName),
 					Value: "session-token-1234",
 				})
 
@@ -317,32 +310,31 @@ func TestPasskey_finishRegistration(t *testing.T) {
 			userStore: func() UserStore {
 				uStore := NewMockUserStore(t)
 				uStore.EXPECT().
-					Get([]byte("1234-5678-9012-3456")).
+					Create(mock.MatchedBy(func(nu NewUser) bool {
+						return nu.Username == "root@example.com" && bytes.Equal(nu.UserID, []byte("1234-5678-9012-3456"))
+					})).
 					Times(1).
-					Return(user, nil)
-				uStore.EXPECT().
-					Update(user).
-					Times(1).
-					Return(nil)
+					Return(createdUser, nil)
 
 				return uStore
 			},
-			authSessionStore: func() SessionStore[webauthn.SessionData] {
-				aStore := NewMockSessionStore[webauthn.SessionData](t)
-				aStore.EXPECT().
-					Get("session-token-1234").
+			registrationSessionStore: func() SessionStore[RegistrationSessionData] {
+				rStore := NewMockSessionStore[RegistrationSessionData](t)
+				rStore.EXPECT().
+					Consume("session-token-1234").
 					Times(1).
-					Return(&webauthn.SessionData{UserID: []byte("1234-5678-9012-3456")}, true)
-				aStore.EXPECT().
-					Delete("session-token-1234").
-					Times(1)
+					Return(&RegistrationSessionData{
+						Username: "root@example.com",
+						Session:  webauthn.SessionData{UserID: []byte("1234-5678-9012-3456")},
+						Expires:  time.Now().Add(5 * time.Minute),
+					}, true)
 
-				return aStore
+				return rStore
 			},
 			webAuthn: func() deps.WebAuthnInterface {
 				wa := deps.NewMockWebAuthnInterface(t)
 				wa.EXPECT().
-					FinishRegistration(user, mock.AnythingOfType("webauthn.SessionData"), mock.Anything).
+					FinishRegistration(mock.Anything, mock.AnythingOfType("webauthn.SessionData"), mock.Anything).
 					Times(1).
 					Return(&webauthn.Credential{}, nil)
 
@@ -353,7 +345,11 @@ func TestPasskey_finishRegistration(t *testing.T) {
 				assert.Contains(t, string(body), "Registration Success")
 			},
 			checkCookie: func(cookies []*http.Cookie) {
-				assert.Empty(t, cookies)
+				require.Len(t, cookies, 1)
+				c := cookies[0]
+				assert.Equal(t, camelCaseConcat(defaultSessionNamePrefix, defaultRegistrationSessionName), c.Name)
+				assert.Empty(t, c.Value)
+				assert.Equal(t, -1, c.MaxAge)
 			},
 		},
 		{
@@ -361,13 +357,13 @@ func TestPasskey_finishRegistration(t *testing.T) {
 			w:    httptest.NewRecorder(),
 			r: func() *http.Request {
 				// request without session cookie
-				return httptest.NewRequest(http.MethodPost, pathLoginFinish, http.NoBody)
+				return httptest.NewRequest(http.MethodPost, pathRegisterFinish, http.NoBody)
 			},
 			userStore: func() UserStore {
 				return NewMockUserStore(t)
 			},
-			authSessionStore: func() SessionStore[webauthn.SessionData] {
-				return NewMockSessionStore[webauthn.SessionData](t)
+			registrationSessionStore: func() SessionStore[RegistrationSessionData] {
+				return NewMockSessionStore[RegistrationSessionData](t)
 			},
 			webAuthn: func() deps.WebAuthnInterface {
 				return deps.NewMockWebAuthnInterface(t)
@@ -381,9 +377,9 @@ func TestPasskey_finishRegistration(t *testing.T) {
 			name: "err: can't get session data",
 			w:    httptest.NewRecorder(),
 			r: func() *http.Request {
-				req := httptest.NewRequest(http.MethodPost, pathLoginFinish, http.NoBody)
+				req := httptest.NewRequest(http.MethodPost, pathRegisterFinish, http.NoBody)
 				req.AddCookie(&http.Cookie{
-					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultAuthSessionName),
+					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultRegistrationSessionName),
 					Value: "session-token-1234",
 				})
 
@@ -392,14 +388,14 @@ func TestPasskey_finishRegistration(t *testing.T) {
 			userStore: func() UserStore {
 				return NewMockUserStore(t)
 			},
-			authSessionStore: func() SessionStore[webauthn.SessionData] {
-				aStore := NewMockSessionStore[webauthn.SessionData](t)
-				aStore.EXPECT().
-					Get("session-token-1234").
+			registrationSessionStore: func() SessionStore[RegistrationSessionData] {
+				rStore := NewMockSessionStore[RegistrationSessionData](t)
+				rStore.EXPECT().
+					Consume("session-token-1234").
 					Times(1).
 					Return(nil, false)
 
-				return aStore
+				return rStore
 			},
 			webAuthn: func() deps.WebAuthnInterface {
 				return deps.NewMockWebAuthnInterface(t)
@@ -408,87 +404,75 @@ func TestPasskey_finishRegistration(t *testing.T) {
 			checkResp: func(body []byte) {
 				assert.Contains(t, string(body), "can't get session data")
 			},
-			checkCookie: func(cookies []*http.Cookie) {
-				// check that the auth cookie is deleted, but
-				// TODO: looks like we actually didn't set any cookie in this handler
-				assert.Empty(t, cookies)
-			},
 		},
 		{
-			name: "err: can't get user",
+			name: "err: session expired",
 			w:    httptest.NewRecorder(),
 			r: func() *http.Request {
-				req := httptest.NewRequest(http.MethodPost, pathLoginFinish, http.NoBody)
+				req := httptest.NewRequest(http.MethodPost, pathRegisterFinish, http.NoBody)
 				req.AddCookie(&http.Cookie{
-					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultAuthSessionName),
+					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultRegistrationSessionName),
 					Value: "session-token-1234",
 				})
 
 				return req
 			},
 			userStore: func() UserStore {
-				uStore := NewMockUserStore(t)
-				uStore.EXPECT().
-					Get([]byte("1234-5678-9012-3456")).
-					Times(1).
-					Return(nil, assert.AnError)
-
-				return uStore
+				return NewMockUserStore(t)
 			},
-			authSessionStore: func() SessionStore[webauthn.SessionData] {
-				aStore := NewMockSessionStore[webauthn.SessionData](t)
-				aStore.EXPECT().
-					Get("session-token-1234").
+			registrationSessionStore: func() SessionStore[RegistrationSessionData] {
+				rStore := NewMockSessionStore[RegistrationSessionData](t)
+				rStore.EXPECT().
+					Consume("session-token-1234").
 					Times(1).
-					Return(&webauthn.SessionData{UserID: []byte("1234-5678-9012-3456")}, true)
+					Return(&RegistrationSessionData{
+						Username: "root@example.com",
+						Session:  webauthn.SessionData{UserID: []byte("1234-5678-9012-3456")},
+						Expires:  time.Now().Add(-1 * time.Minute), // expired
+					}, true)
 
-				return aStore
+				return rStore
 			},
 			webAuthn: func() deps.WebAuthnInterface {
 				return deps.NewMockWebAuthnInterface(t)
 			},
 			wantStatus: http.StatusBadRequest,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "can't get user: ")
-			},
-			checkCookie: func(cookies []*http.Cookie) {
-				assert.Empty(t, cookies)
+				assert.Contains(t, string(body), "registration session has expired")
 			},
 		},
 		{
 			name: "err: can't get credential from webauthn",
 			w:    httptest.NewRecorder(),
 			r: func() *http.Request {
-				req := httptest.NewRequest(http.MethodPost, pathLoginFinish, http.NoBody)
+				req := httptest.NewRequest(http.MethodPost, pathRegisterFinish, http.NoBody)
 				req.AddCookie(&http.Cookie{
-					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultAuthSessionName),
+					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultRegistrationSessionName),
 					Value: "session-token-1234",
 				})
 
 				return req
 			},
 			userStore: func() UserStore {
-				uStore := NewMockUserStore(t)
-				uStore.EXPECT().
-					Get([]byte("1234-5678-9012-3456")).
-					Times(1).
-					Return(user, nil)
-
-				return uStore
+				return NewMockUserStore(t)
 			},
-			authSessionStore: func() SessionStore[webauthn.SessionData] {
-				aStore := NewMockSessionStore[webauthn.SessionData](t)
-				aStore.EXPECT().
-					Get("session-token-1234").
+			registrationSessionStore: func() SessionStore[RegistrationSessionData] {
+				rStore := NewMockSessionStore[RegistrationSessionData](t)
+				rStore.EXPECT().
+					Consume("session-token-1234").
 					Times(1).
-					Return(&webauthn.SessionData{UserID: []byte("1234-5678-9012-3456")}, true)
+					Return(&RegistrationSessionData{
+						Username: "root@example.com",
+						Session:  webauthn.SessionData{UserID: []byte("1234-5678-9012-3456")},
+						Expires:  time.Now().Add(5 * time.Minute),
+					}, true)
 
-				return aStore
+				return rStore
 			},
 			webAuthn: func() deps.WebAuthnInterface {
 				wa := deps.NewMockWebAuthnInterface(t)
 				wa.EXPECT().
-					FinishRegistration(user, mock.AnythingOfType("webauthn.SessionData"), mock.Anything).
+					FinishRegistration(mock.Anything, mock.AnythingOfType("webauthn.SessionData"), mock.Anything).
 					Times(1).
 					Return(nil, assert.AnError)
 
@@ -498,17 +482,14 @@ func TestPasskey_finishRegistration(t *testing.T) {
 			checkResp: func(body []byte) {
 				assert.Contains(t, string(body), "can't finish registration: ")
 			},
-			checkCookie: func(cookies []*http.Cookie) {
-				assert.Empty(t, cookies)
-			},
 		},
 		{
-			name: "err: can't save user after putting credential",
+			name: "err: can't create user",
 			w:    httptest.NewRecorder(),
 			r: func() *http.Request {
-				req := httptest.NewRequest(http.MethodPost, pathLoginFinish, http.NoBody)
+				req := httptest.NewRequest(http.MethodPost, pathRegisterFinish, http.NoBody)
 				req.AddCookie(&http.Cookie{
-					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultAuthSessionName),
+					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultRegistrationSessionName),
 					Value: "session-token-1234",
 				})
 
@@ -517,29 +498,29 @@ func TestPasskey_finishRegistration(t *testing.T) {
 			userStore: func() UserStore {
 				uStore := NewMockUserStore(t)
 				uStore.EXPECT().
-					Get([]byte("1234-5678-9012-3456")).
+					Create(mock.Anything).
 					Times(1).
-					Return(user, nil)
-				uStore.EXPECT().
-					Update(user).
-					Times(1).
-					Return(assert.AnError)
+					Return(nil, assert.AnError)
 
 				return uStore
 			},
-			authSessionStore: func() SessionStore[webauthn.SessionData] {
-				aStore := NewMockSessionStore[webauthn.SessionData](t)
-				aStore.EXPECT().
-					Get("session-token-1234").
+			registrationSessionStore: func() SessionStore[RegistrationSessionData] {
+				rStore := NewMockSessionStore[RegistrationSessionData](t)
+				rStore.EXPECT().
+					Consume("session-token-1234").
 					Times(1).
-					Return(&webauthn.SessionData{UserID: []byte("1234-5678-9012-3456")}, true)
+					Return(&RegistrationSessionData{
+						Username: "root@example.com",
+						Session:  webauthn.SessionData{UserID: []byte("1234-5678-9012-3456")},
+						Expires:  time.Now().Add(5 * time.Minute),
+					}, true)
 
-				return aStore
+				return rStore
 			},
 			webAuthn: func() deps.WebAuthnInterface {
 				wa := deps.NewMockWebAuthnInterface(t)
 				wa.EXPECT().
-					FinishRegistration(user, mock.AnythingOfType("webauthn.SessionData"), mock.Anything).
+					FinishRegistration(mock.Anything, mock.AnythingOfType("webauthn.SessionData"), mock.Anything).
 					Times(1).
 					Return(&webauthn.Credential{}, nil)
 
@@ -547,10 +528,7 @@ func TestPasskey_finishRegistration(t *testing.T) {
 			},
 			wantStatus: http.StatusBadRequest,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "can't save user: ")
-			},
-			checkCookie: func(cookies []*http.Cookie) {
-				assert.Empty(t, cookies)
+				assert.Contains(t, string(body), "can't create user: ")
 			},
 		},
 	}
@@ -564,9 +542,10 @@ func TestPasskey_finishRegistration(t *testing.T) {
 						RPID:          "localhost",
 						RPOrigins:     []string{"localhost"},
 					},
-					UserStore:        tt.userStore(),
-					AuthSessionStore: tt.authSessionStore(),
-					UserSessionStore: NewMockSessionStore[UserSessionData](t),
+					UserStore:                tt.userStore(),
+					LoginSessionStore:        NewMockSessionStore[webauthn.SessionData](t),
+					RegistrationSessionStore: tt.registrationSessionStore(),
+					UserSessionStore:         NewMockSessionStore[UserSessionData](t),
 				},
 			)
 			require.NoError(t, err)
@@ -594,15 +573,15 @@ func TestPasskey_beginLogin(t *testing.T) {
 		Return("root@example.com")
 
 	tests := []struct {
-		name             string
-		w                *httptest.ResponseRecorder
-		r                *http.Request
-		userStore        func() UserStore
-		authSessionStore func() SessionStore[webauthn.SessionData]
-		webAuthn         func() deps.WebAuthnInterface
-		wantStatus       int
-		checkResp        func(body []byte)
-		checkCookie      func(cookies []*http.Cookie)
+		name              string
+		w                 *httptest.ResponseRecorder
+		r                 *http.Request
+		userStore         func() UserStore
+		loginSessionStore func() SessionStore[webauthn.SessionData]
+		webAuthn          func() deps.WebAuthnInterface
+		wantStatus        int
+		checkResp         func(body []byte)
+		checkCookie       func(cookies []*http.Cookie)
 	}{
 		{
 			name: "succ: all good",
@@ -617,7 +596,7 @@ func TestPasskey_beginLogin(t *testing.T) {
 
 				return uStore
 			},
-			authSessionStore: func() SessionStore[webauthn.SessionData] {
+			loginSessionStore: func() SessionStore[webauthn.SessionData] {
 				aStore := NewMockSessionStore[webauthn.SessionData](t)
 				aStore.EXPECT().
 					Create(mock.AnythingOfType("webauthn.SessionData")).
@@ -641,10 +620,10 @@ func TestPasskey_beginLogin(t *testing.T) {
 			checkCookie: func(cookies []*http.Cookie) {
 				assert.Len(t, cookies, 1)
 				c := cookies[0]
-				assert.Equal(t, camelCaseConcat(defaultSessionNamePrefix, defaultAuthSessionName), c.Name)
+				assert.Equal(t, camelCaseConcat(defaultSessionNamePrefix, defaultLoginSessionName), c.Name)
 				assert.Equal(t, "session-token-1234", c.Value)
 				assert.Equal(t, "/", c.Path)
-				assert.Equal(t, int(defaultAuthSessionMaxAge.Seconds()), c.MaxAge)
+				assert.Equal(t, int(defaultLoginSessionMaxAge.Seconds()), c.MaxAge)
 				assert.True(t, c.Secure)
 				assert.True(t, c.HttpOnly)
 				assert.Equal(t, http.SameSiteLaxMode, c.SameSite)
@@ -657,7 +636,7 @@ func TestPasskey_beginLogin(t *testing.T) {
 			userStore: func() UserStore {
 				return NewMockUserStore(t)
 			},
-			authSessionStore: func() SessionStore[webauthn.SessionData] {
+			loginSessionStore: func() SessionStore[webauthn.SessionData] {
 				return NewMockSessionStore[webauthn.SessionData](t)
 			},
 			webAuthn: func() deps.WebAuthnInterface {
@@ -681,7 +660,7 @@ func TestPasskey_beginLogin(t *testing.T) {
 
 				return uStore
 			},
-			authSessionStore: func() SessionStore[webauthn.SessionData] {
+			loginSessionStore: func() SessionStore[webauthn.SessionData] {
 				return NewMockSessionStore[webauthn.SessionData](t)
 			},
 			webAuthn: func() deps.WebAuthnInterface {
@@ -705,7 +684,7 @@ func TestPasskey_beginLogin(t *testing.T) {
 
 				return uStore
 			},
-			authSessionStore: func() SessionStore[webauthn.SessionData] {
+			loginSessionStore: func() SessionStore[webauthn.SessionData] {
 				return NewMockSessionStore[webauthn.SessionData](t)
 			},
 			webAuthn: func() deps.WebAuthnInterface {
@@ -735,7 +714,7 @@ func TestPasskey_beginLogin(t *testing.T) {
 
 				return uStore
 			},
-			authSessionStore: func() SessionStore[webauthn.SessionData] {
+			loginSessionStore: func() SessionStore[webauthn.SessionData] {
 				aStore := NewMockSessionStore[webauthn.SessionData](t)
 				aStore.EXPECT().
 					Create(mock.AnythingOfType("webauthn.SessionData")).
@@ -769,9 +748,10 @@ func TestPasskey_beginLogin(t *testing.T) {
 						RPID:          "localhost",
 						RPOrigins:     []string{"localhost"},
 					},
-					UserStore:        tt.userStore(),
-					AuthSessionStore: tt.authSessionStore(),
-					UserSessionStore: NewMockSessionStore[UserSessionData](t),
+					UserStore:                tt.userStore(),
+					LoginSessionStore:        tt.loginSessionStore(),
+					RegistrationSessionStore: NewMockSessionStore[RegistrationSessionData](t),
+					UserSessionStore:         NewMockSessionStore[UserSessionData](t),
 				},
 			)
 			require.NoError(t, err)
@@ -791,14 +771,14 @@ func TestPasskey_beginLogin(t *testing.T) {
 	}
 }
 
-func TestPasskey_deleteAuthSessionCookie(t *testing.T) {
+func TestPasskey_deleteSessionCookie(t *testing.T) {
 	t.Parallel()
 
 	p := &Passkey{}
 	p.setupCookieSettings()
 	w := httptest.NewRecorder()
 
-	p.deleteAuthSessionCookie(p.cookieSettings.userSessionName, w)
+	p.deleteSessionCookie(p.cookieSettings.userSessionName, w)
 
 	cookies := w.Result().Cookies()
 	require.Len(t, cookies, 1)
@@ -821,15 +801,15 @@ func TestPasskey_finishLogin(t *testing.T) {
 		Return("root@example.com")
 
 	tests := []struct {
-		name             string
-		w                *httptest.ResponseRecorder
-		r                func() *http.Request
-		userStore        func() UserStore
-		authSessionStore func() SessionStore[webauthn.SessionData]
-		userSessionStore func() SessionStore[UserSessionData]
-		webAuthn         func() deps.WebAuthnInterface
-		wantStatus       int
-		checkResp        func(body []byte)
+		name              string
+		w                 *httptest.ResponseRecorder
+		r                 func() *http.Request
+		userStore         func() UserStore
+		loginSessionStore func() SessionStore[webauthn.SessionData]
+		userSessionStore  func() SessionStore[UserSessionData]
+		webAuthn          func() deps.WebAuthnInterface
+		wantStatus        int
+		checkResp         func(body []byte)
 	}{
 		{
 			name: "succ: all good",
@@ -837,7 +817,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 			r: func() *http.Request {
 				req := httptest.NewRequest(http.MethodPost, pathLoginFinish, http.NoBody)
 				req.AddCookie(&http.Cookie{
-					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultAuthSessionName),
+					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultLoginSessionName),
 					Value: "session-token-1234",
 				})
 
@@ -856,7 +836,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 
 				return uStore
 			},
-			authSessionStore: func() SessionStore[webauthn.SessionData] {
+			loginSessionStore: func() SessionStore[webauthn.SessionData] {
 				aStore := NewMockSessionStore[webauthn.SessionData](t)
 				aStore.EXPECT().
 					Get("session-token-1234").
@@ -901,7 +881,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 			userStore: func() UserStore {
 				return NewMockUserStore(t)
 			},
-			authSessionStore: func() SessionStore[webauthn.SessionData] {
+			loginSessionStore: func() SessionStore[webauthn.SessionData] {
 				return NewMockSessionStore[webauthn.SessionData](t)
 			},
 			userSessionStore: func() SessionStore[UserSessionData] {
@@ -921,7 +901,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 			r: func() *http.Request {
 				req := httptest.NewRequest(http.MethodPost, pathLoginFinish, http.NoBody)
 				req.AddCookie(&http.Cookie{
-					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultAuthSessionName),
+					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultLoginSessionName),
 					Value: "session-token-1234",
 				})
 
@@ -930,7 +910,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 			userStore: func() UserStore {
 				return NewMockUserStore(t)
 			},
-			authSessionStore: func() SessionStore[webauthn.SessionData] {
+			loginSessionStore: func() SessionStore[webauthn.SessionData] {
 				aStore := NewMockSessionStore[webauthn.SessionData](t)
 				aStore.EXPECT().
 					Get("session-token-1234").
@@ -956,7 +936,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 			r: func() *http.Request {
 				req := httptest.NewRequest(http.MethodPost, pathLoginFinish, http.NoBody)
 				req.AddCookie(&http.Cookie{
-					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultAuthSessionName),
+					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultLoginSessionName),
 					Value: "session-token-1234",
 				})
 
@@ -971,7 +951,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 
 				return uStore
 			},
-			authSessionStore: func() SessionStore[webauthn.SessionData] {
+			loginSessionStore: func() SessionStore[webauthn.SessionData] {
 				aStore := NewMockSessionStore[webauthn.SessionData](t)
 				aStore.EXPECT().
 					Get("session-token-1234").
@@ -997,7 +977,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 			r: func() *http.Request {
 				req := httptest.NewRequest(http.MethodPost, pathLoginFinish, http.NoBody)
 				req.AddCookie(&http.Cookie{
-					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultAuthSessionName),
+					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultLoginSessionName),
 					Value: "session-token-1234",
 				})
 
@@ -1012,7 +992,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 
 				return uStore
 			},
-			authSessionStore: func() SessionStore[webauthn.SessionData] {
+			loginSessionStore: func() SessionStore[webauthn.SessionData] {
 				aStore := NewMockSessionStore[webauthn.SessionData](t)
 				aStore.EXPECT().
 					Get("session-token-1234").
@@ -1044,7 +1024,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 			r: func() *http.Request {
 				req := httptest.NewRequest(http.MethodPost, pathLoginFinish, http.NoBody)
 				req.AddCookie(&http.Cookie{
-					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultAuthSessionName),
+					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultLoginSessionName),
 					Value: "session-token-1234",
 				})
 
@@ -1063,7 +1043,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 
 				return uStore
 			},
-			authSessionStore: func() SessionStore[webauthn.SessionData] {
+			loginSessionStore: func() SessionStore[webauthn.SessionData] {
 				aStore := NewMockSessionStore[webauthn.SessionData](t)
 				aStore.EXPECT().
 					Get("session-token-1234").
@@ -1095,7 +1075,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 			r: func() *http.Request {
 				req := httptest.NewRequest(http.MethodPost, pathLoginFinish, http.NoBody)
 				req.AddCookie(&http.Cookie{
-					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultAuthSessionName),
+					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultLoginSessionName),
 					Value: "session-token-1234",
 				})
 
@@ -1114,7 +1094,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 
 				return uStore
 			},
-			authSessionStore: func() SessionStore[webauthn.SessionData] {
+			loginSessionStore: func() SessionStore[webauthn.SessionData] {
 				aStore := NewMockSessionStore[webauthn.SessionData](t)
 				aStore.EXPECT().
 					Get("session-token-1234").
@@ -1160,9 +1140,10 @@ func TestPasskey_finishLogin(t *testing.T) {
 						RPID:          "localhost",
 						RPOrigins:     []string{"localhost"},
 					},
-					UserStore:        tt.userStore(),
-					AuthSessionStore: tt.authSessionStore(),
-					UserSessionStore: tt.userSessionStore(),
+					UserStore:                tt.userStore(),
+					LoginSessionStore:        tt.loginSessionStore(),
+					RegistrationSessionStore: NewMockSessionStore[RegistrationSessionData](t),
+					UserSessionStore:         tt.userSessionStore(),
 				},
 			)
 			require.NoError(t, err)
@@ -1237,9 +1218,10 @@ func TestPasskey_Logout(t *testing.T) {
 						RPID:          "localhost",
 						RPOrigins:     []string{"localhost"},
 					},
-					UserStore:        NewMockUserStore(t),
-					AuthSessionStore: NewMockSessionStore[webauthn.SessionData](t),
-					UserSessionStore: tt.userSessionStore(),
+					UserStore:                NewMockUserStore(t),
+					LoginSessionStore:        NewMockSessionStore[webauthn.SessionData](t),
+					RegistrationSessionStore: NewMockSessionStore[RegistrationSessionData](t),
+					UserSessionStore:         tt.userSessionStore(),
 				},
 			)
 			require.NoError(t, err)
