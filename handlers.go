@@ -284,10 +284,13 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	p.log.Debugf("got session")
 
-	// Get the session data stored from the function above
-	p.log.Debugf("try to get session data")
-	session, ok := p.loginSessionStore.Get(sid.Value)
-	if !ok {
+	// Every attempt with a login cookie ends this ceremony, even if verification fails.
+	p.deleteSessionCookie(p.cookieSettings.loginSessionName, w)
+
+	// Consume before verification so concurrent requests cannot reuse the challenge.
+	p.log.Debugf("try to consume session data")
+	session, ok := p.loginSessionStore.Consume(sid.Value)
+	if !ok || session == nil {
 		err = fmt.Errorf("can't get session data")
 
 		return
@@ -328,11 +331,6 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p.log.Debugf("user saved")
-
-	// Delete the login session data
-	p.log.Debugf("deleting session data and cookie")
-	p.loginSessionStore.Delete(sid.Value)
-	p.deleteSessionCookie(p.cookieSettings.loginSessionName, w)
 
 	p.log.Debugf("try to save user session")
 	t, err := p.userSessionStore.Create(UserSessionData{

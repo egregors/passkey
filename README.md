@@ -80,8 +80,6 @@ To add a passkey service to your application, you need to do a few simple steps:
 ```go
 package passkey
 
-import "github.com/go-webauthn/webauthn/webauthn"
-
 // UserStore is a persistent storage for users and credentials
 type UserStore interface {
 	Create(username string) (User, error)
@@ -92,11 +90,12 @@ type UserStore interface {
 }
 
 // SessionStore is a storage for session data
-type SessionStore[T webauthn.SessionData | UserSessionData] interface {
+type SessionStore[T any] interface {
 	Create(data T) (string, error)
 	Delete(token string)
 
 	Get(token string) (*T, bool)
+	Consume(token string) (*T, bool) // Atomically retrieve and delete a session.
 }
 
 ```
@@ -253,6 +252,13 @@ HTTP 413 before the handler accesses storage or WebAuthn, including when
 invalid lengths return HTTP 400 before the username is logged or passed to storage.
 These limits are fixed and apply to the decoded username and the entire raw request
 body, respectively, including any trailing data.
+
+Login challenges are single-use. `loginFinish` atomically consumes the login session
+before verifying the assertion and clears the login cookie on both success and
+failure. After a failed attempt, start again with `loginBegin`. Session stores must
+implement `Consume` as an atomic retrieve-and-delete operation, including across
+application instances sharing storage. Requests rejected by the body limit do not
+reach the handler and do not consume a challenge.
 
 | Method                                                                                            | Description                                                                                         |
 |---------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------|
