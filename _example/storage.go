@@ -13,8 +13,6 @@ import (
 	"github.com/egregors/passkey"
 )
 
-// -- User storage methods --
-
 type UserStore struct {
 	users map[string]*User
 	mu    sync.RWMutex
@@ -96,8 +94,6 @@ func (s *UserStore) Create(user passkey.NewUser) (passkey.User, error) {
 	s.users[user.Username] = u.snapshot()
 	return u, nil
 }
-
-// -- Session storage methods --
 
 type SessionStore[T any] struct {
 	sessions map[string]T

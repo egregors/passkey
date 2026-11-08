@@ -21,8 +21,7 @@
 * [Installation](#installation)
 * [Usage](#usage)
     * [Library Usage](#library-usage)
-        * [Implement storages: `UserStore` and two
-          `SessionStore` one for WebAuthn and one for general session](#implement-storages-userstore-and-two-sessionstore-one-for-webauthn-and-one-for-general-session)
+        * [Implement storage](#implement-storage)
         * [Create a new `Passkey` instance and mount the routes](#create-a-new-passkey-instance-and-mount-the-routes)
         * [Client-side](#client-side)
     * [Example Application](#example-application)
@@ -60,8 +59,7 @@ Actual versions:
 
 ## Installation
 
-To get started, you need to have Go installed on your machine. If you don't have it installed,
-you can download it from [here](https://golang.org/dl/).
+Use Go 1.25 or newer, as declared in [go.mod](go.mod).
 
 Install the library using `go get`:
 
@@ -75,46 +73,25 @@ go get github.com/egregors/passkey
 
 To add a passkey service to your application, you need to do a few simple steps:
 
-#### Implement storages: `UserStore` and two `SessionStore` one for WebAuthn and one for general session
+#### Implement storage
 
-```go
-package passkey
+Implement [`UserStore`, `User`, and `SessionStore[T]`](ifaces.go). Configure one
+user store and three session stores:
 
-import "github.com/go-webauthn/webauthn/webauthn"
+| Configuration field | Record type | Purpose |
+|---|---|---|
+| `UserStore` | `User` | Accounts and registered credentials |
+| `LoginSessionStore` | `webauthn.SessionData` | Pending login challenges |
+| `RegistrationSessionStore` | `passkey.RegistrationSessionData` | Pending registration challenges and usernames |
+| `UserSessionStore` | `passkey.UserSessionData` | Authenticated sessions |
 
-// UserStore is a persistent storage for users and credentials
-type UserStore interface {
-	Create(u NewUser) (User, error)
-	UpdateCredential(userID []byte, credential webauthn.Credential) error
-
-	Get(userID []byte) (User, error)
-	GetByName(username string) (User, error)
-}
-
-// SessionStore is a storage for session data
-type SessionStore[T any] interface {
-	Create(data T) (string, error)
-	Delete(token string)
-
-	Get(token string) (*T, bool)
-	Consume(token string) (*T, bool) // Atomically retrieve and delete a session.
-}
-
-```
-
-Your `User` model also should implement `User` interface:
-
-```go
-package main
-
-import "github.com/go-webauthn/webauthn/webauthn"
-
-// User is a user with webauthn credentials
-type User interface {
-	webauthn.User
-}
-
-```
+`Create(passkey.NewUser)` must atomically save the account and its initial
+credential, preserve the exact `UserID`, and enforce unique usernames and user IDs.
+Return `passkey.ErrUserAlreadyExists` on conflicts. Unknown users must return
+`passkey.ErrUserNotFound` from lookups; do not return a nil user with a nil error.
+The library registers new accounts only; it does not attach credentials to an
+existing account. Registration does not create an authenticated session: log in
+separately afterward.
 
 `User` implements `webauthn.User`. Storage reads and `Create` must return detached
 snapshots, including credential byte slices. After verification, the library calls
@@ -126,108 +103,40 @@ missing records.
 
 #### Create a new `Passkey` instance and mount the routes
 
-The whole example is in `_example` directory.
+For a runnable integration, see:
 
-```go
-package main
+- [`_example/main.go`](_example/main.go) configures all stores, mounts the ceremony
+  routes under `/api/`, and protects `/private` with `Auth`.
+- [`_example/storage.go`](_example/storage.go) and
+  [`_example/models.go`](_example/models.go) implement in-memory user storage with detached snapshots and bounded session
+  storage. Data is lost on restart.
+- [`_example/main_test.go`](_example/main_test.go) exercises registration, signed
+  login, private-page access, deleted users, and logout through the actual mux.
+  `make test` and CI run these tests in the separate example module.
 
-import (
-	"embed"
-	"fmt"
-	"io/fs"
-	"net/http"
-	"net/url"
-	"time"
+Pass the same user-store instance to `passkey.Config` and application handlers
+that resolve the authenticated user ID. Mount routes with a trailing slash, for
+example `pkey.MountRoutes(mux, "/api/")`. This exposes the following POST routes:
 
-	"github.com/go-webauthn/webauthn/webauthn"
+| Route | Request |
+|---|---|
+| `/api/passkey/registerBegin` | `{"username":"alice"}` |
+| `/api/passkey/registerFinish` | WebAuthn registration response |
+| `/api/passkey/loginBegin` | `{"username":"alice"}` |
+| `/api/passkey/loginFinish` | WebAuthn assertion response |
 
-	"github.com/egregors/passkey"
-	"github.com/egregors/passkey/log"
-)
-
-//go:embed web/*
-var webFiles embed.FS
-
-const userKey passkey.AuthUserIDKey = "pkUser"
-
-func main() {
-	proto := getEnv("PROTO", "http")             // "http" | "https"
-	sub := getEnv("SUB", "")                     // "" | "login."
-	host := getEnv("HOST", "localhost")          // "localhost" | "example.com"
-	originPort := getEnv("ORIGIN_PORT", ":8080") // ":8080" | "" if you use reverse proxy it should be the most "external" port
-	serverPort := getEnv("SERVER_PORT", ":8080") // ":8080"
-
-	origin := fmt.Sprintf("%s://%s%s%s", proto, sub, host, originPort)
-
-	l := log.NewLogger()
-
-	opts := []passkey.Option{
-		passkey.WithLogger(l),
-		passkey.WithUserSessionMaxAge(60 * time.Minute),
-		passkey.WithSessionCookieNamePrefix("passkeyDemo"),
-	}
-	if proto == "http" {
-		opts = append(opts, passkey.WithInsecureCookie())
-	}
-	pkey, err := passkey.New(
-		passkey.Config{
-			WebauthnConfig: &webauthn.Config{
-				RPDisplayName: "Passkey Example", // Display Name for your site
-				RPID:          host,              // Generally the FQDN for your site
-				RPOrigins:     []string{origin},  // The origin URLs allowed for WebAuthn
-			},
-			UserStore:                NewUserStore(),
-			LoginSessionStore:        NewSessionStore[webauthn.SessionData](),
-			RegistrationSessionStore: NewSessionStore[passkey.RegistrationSessionData](),
-			UserSessionStore:         NewSessionStore[passkey.UserSessionData](),
-		},
-		opts...,
-	)
-	if err != nil {
-		panic(err)
-	}
-
-	mux := http.NewServeMux()
-
-	// mount the passkey routes
-	pkey.MountRoutes(mux, "/api/")
-
-	// public routes
-	web, _ := fs.Sub(webFiles, "web")
-	mux.Handle("/", http.FileServer(http.FS(web)))
-	mux.HandleFunc("/logout", pkey.Logout)
-
-	// private routes
-	privateMux := http.NewServeMux()
-	privateMux.HandleFunc("/", privateHandler())
-
-	// wrap the privateMux with the Auth middleware
-	withAuth := pkey.Auth(
-		userKey,
-		nil,
-		passkey.RedirectUnauthorized(url.URL{Path: "/"}),
-	)
-	mux.Handle("/private", withAuth(privateMux))
-
-	// start the server
-	l.Infof("Listening on %s\n", origin)
-	if err := http.ListenAndServe(serverPort, mux); err != nil { //nolint:gosec
-		panic(err)
-	}
-}
-
-```
+Mount `pkey.Logout` separately at the application's logout path.
 
 You can optionally provide a logger to the `New` function using the `WithLogger` option.
 
 Full list of options:
 
-| Name                        | Default                                | Description                                          |
-|-----------------------------|----------------------------------------|------------------------------------------------------|
-| WithLogger                  | NullLogger                             | Provide custom logger                                |
-| WithInsecureCookie          | Disabled (cookie is secure by default) | Sets Cookie.Secure to false                          |
-| WithSessionCookieNamePrefix | `pk`                                   | Sets the name prefix of the session and user cookies |
-| WithUserSessionMaxAge       | 60 minutes                             | Sets the max age of the user session cookie          |
+| Name | Default | Description |
+|---|---|---|
+| WithLogger | `log.NewLogger()` | Provide a custom logger |
+| WithInsecureCookie | Disabled | Use unprefixed, non-Secure cookies for local HTTP |
+| WithSessionCookieNamePrefix | `pk` | Set the base prefix before the reserved `__Host-` prefix is applied |
+| WithUserSessionMaxAge | 60 minutes | Set the authenticated-session lifetime and cookie max age |
 
 #### Client-side
 
@@ -254,17 +163,19 @@ make up
 
 ## API
 
-All four passkey endpoints accept request bodies up to 1 MiB. Larger bodies return
-HTTP 413 before the handler accesses storage or WebAuthn, including when
+After method/origin validation, all four passkey endpoints accept request bodies
+up to 1 MiB. Larger bodies return HTTP 413 before storage or WebAuthn access, including when
 `Content-Length` is unknown. Usernames must contain between 1 and 256 UTF-8 bytes;
 invalid lengths return HTTP 400 before the username is logged or passed to storage.
 These limits are fixed and apply to the decoded username and the entire raw request
 body, respectively, including any trailing data.
 
-Login challenges are single-use. `loginFinish` atomically consumes the login session
-before verifying the assertion and clears the login cookie on both success and
-failure. After a failed attempt, start again with `loginBegin`. Session stores must
-implement `Consume` as an atomic retrieve-and-delete operation, including across
+Login and registration challenges are single-use. Once a finish request passes
+the method/origin and body-size checks and supplies one ceremony cookie, it
+atomically consumes that session before verification and clears the cookie on
+success or failure. After a failed attempt, restart with the corresponding begin
+endpoint. Session stores must implement `Consume` as an atomic retrieve-and-delete
+operation, including across
 application instances sharing storage. Requests rejected by the body limit do not
 reach the handler and do not consume a challenge.
 
@@ -272,11 +183,13 @@ Login challenges expire on the server after at most five minutes, independently 
 cookie expiration and storage TTL. A shorter expiration set by WebAuthn is preserved.
 Expired sessions and legacy login sessions without an expiration are rejected and
 consumed before user lookup or signature verification; the client must start a new
-login ceremony. Session stores must also clean up expired records to reclaim space.
+login ceremony. Registration sessions are also capped at five minutes, preserving
+a shorter WebAuthn deadline. Session stores must enforce record expiration and reclaim
+expired records to free space; do not extend deadlines when serializing records.
 
 Authenticated sessions carry a purpose/version marker set after successful login.
 `Auth` rejects sessions with a missing or incorrect marker, an empty user ID, or an
-elapsed expiration. Existing sessions without the marker require a new login.
+absent or elapsed expiration. Existing sessions without the marker require a new login.
 Storage serialization must preserve all fields and must not fill in missing markers.
 Use separate key namespaces for each of the three session stores and each
 application/tenant scope. Tokens must be unique and cryptographically random with
@@ -288,7 +201,9 @@ with HTTP 503 and do not set a new session cookie. The example store retains at
 most 1024 records per instance and removes expired entries on creation or lookup.
 It needs no background cleanup goroutine.
 
-Production cookies use `__Host-` names with `Secure`, `Path=/`, and no `Domain`.
+Production cookies use `__Host-` names with `Secure`, `HttpOnly`, `SameSite=Lax`,
+`Path=/`, and no `Domain`. Default names are `__Host-pkLsid`, `__Host-pkRsid`, and
+`__Host-pkUsid` for login, registration, and authenticated sessions respectively.
 `WithInsecureCookie` uses ordinary names for local HTTP development. Custom name
 prefixes must form valid cookie names; invalid configuration fails in `New`.
 Duplicate same-name session cookies are rejected, including during logout.
@@ -319,15 +234,15 @@ belongs to the application; storage capacity remains a separate hard limit.
 |---------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------|
 | `New(cfg Config, opts ...Option) (*Passkey, error)`                                               | Creates a new Passkey instance.                                                                     |
 | `MountRoutes(mux *http.ServeMux, path string)`                                                    | Mounts the Passkey routes onto a given HTTP multiplexer.                                            |
-| `Auth(userIDKey string, onSuccess, onFail http.HandlerFunc) func(next http.Handler) http.Handler` | Middleware to protect routes that require authentication.                                           |
-| `UserIDFromCtx(ctx context.Context, pkUserKey string) ([]byte, bool)`                             | Returns the user ID from the request context. If the userID is not found, it returns nil and false. |
+| `Auth(userIDKey AuthUserIDKey, onSuccess, onFail http.HandlerFunc) func(next http.Handler) http.Handler` | Middleware to protect routes that require authentication.                                           |
+| `UserIDFromCtx(ctx context.Context, pkUserKey AuthUserIDKey) ([]byte, bool)`                             | Returns the user ID from the request context. If the userID is not found, it returns nil and false. |
 
 ### Middleware
 
 The library provides a middleware function that can be used to protect routes that require authentication.
 
 ```go
-Auth(userIDKey string, onSuccess, onFail http.HandlerFunc) func (next http.Handler) http.Handler
+Auth(userIDKey AuthUserIDKey, onSuccess, onFail http.HandlerFunc) func (next http.Handler) http.Handler
 ```
 
 It takes key for context and two callback functions that are called when the user is authenticated or not.
@@ -344,33 +259,19 @@ the protected handler; a nil `onSuccess` simply skips that callback.
 |------------------------------|-------------------------------------------------------------------------|
 | Unauthorized                 | Returns a 401 Unauthorized response when the user is not authenticated. |
 | RedirectUnauthorized(target) | Redirects the user to a local URL when they are not authenticated.      |
-| UserFromContext              | Get userID from context                                                 |
+| UserIDFromCtx                | Returns the authenticated user ID from context.                         |
 
-You can use it to protect routes that require authentication:
+Use a typed key such as `const userKey passkey.AuthUserIDKey = "pkUser"` for both
+`pkey.Auth` and `passkey.UserIDFromCtx`. The example's
+[`exampleMux` and `privateHandler`](_example/main.go) show this wiring.
 
-```go
-package main
-
-import (
-	"net/url"
-
-	"github.com/egregors/passkey"
-)
-
-func main() {
-	pkey, err := passkey.New(...)
-	check(err)
-
-	withAuth := pkey.Auth(
-		"pkUser",
-		nil,
-		passkey.RedirectUnauthorized(url.URL{Path: "/"}),
-	)
-
-	mux.Handle("/private", withAuth(privateMux))
-}
-
-```
+On success, `Auth` sets the user ID in the request context, runs `onSuccess` if
+provided, and then always calls the protected handler. A success callback cannot
+stop the request. The middleware validates the session, not the current account
+record: application handlers must handle deleted users, and the application must
+revoke sessions when its account lifecycle or authorization policy requires it.
+`RedirectUnauthorized` returns a 303 redirect for local targets and falls back to
+401 for rejected targets.
 
 ## Development
 
@@ -400,7 +301,7 @@ help                 Show help message
 
 ### Mocks
 
-Use [mockery](https://github.com/vektra/mockery) to generate mocks for interfaces.A
+Use [mockery](https://github.com/vektra/mockery) to generate mocks for interfaces.
 
 ### Troubleshooting
 
@@ -409,19 +310,21 @@ Use [mockery](https://github.com/vektra/mockery) to generate mocks for interface
 **Q: I'm getting an error "named cookie not present" when I try to interact with passkey running on `localhost` from
 macOS Safari.**
 
-A: This is a known issue with Safari and localhost. You can work around it by using the `WithInsecureCookie` option when
-creating a new `Passkey` instance. This will set the `Secure` flag on the session cookie to `false`.
+A: For local HTTP development, use `WithInsecureCookie` to disable Secure and
+reserved cookie prefixes. Production requires HTTPS with the default secure cookies.
 
-**Q: I'm getting an error "Error validating origin" when I try to interact with passkey.**
+**Q: Why do ceremony requests return 403 or an origin-related verification failure?**
 
-A: This error occurs when the origin URL is not included in the `RPOrigins` list. Make sure that the origin URL is
-included in the `RPOrigins` list when creating a new `Passkey` instance.
+A: Configure `RPOrigins` with the exact browser origin, including its scheme and
+nondefault port. POST requests must send that Origin header; WebAuthn verification
+also checks the origin in the signed client data.
 
 **Q: I'm getting an error "WebAuthn in not supported in this browser" when I try to interact with passkey on `localhost`
 from iOS Safari.**
 
-A: Mobile Safari no not store insecure cookies. To play around with the example app on iOS Safari, you should run in
-with self-signed certificate. Use `make up` to run the example app in docker container with self-signed certificate.
+A: WebAuthn needs a browser-trusted secure context. Use HTTPS when testing from
+another device; `make up` starts the HTTPS example, whose local certificate must be
+trusted by the test device.
 
 ## Contributing
 

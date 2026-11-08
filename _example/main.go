@@ -24,11 +24,11 @@ var webFiles embed.FS
 const userKey passkey.AuthUserIDKey = "pkUser"
 
 func main() {
-	proto := getEnv("PROTO", "http")             // "http" | "https"
-	sub := getEnv("SUB", "")                     // "" | "login."
-	host := getEnv("HOST", "localhost")          // "localhost" | "example.com"
-	originPort := getEnv("ORIGIN_PORT", ":8080") // ":8080" | "" if you use reverse proxy it should be the most "external" port
-	serverPort := getEnv("SERVER_PORT", ":8080") // ":8080"
+	proto := getEnv("PROTO", "http")
+	sub := getEnv("SUB", "")
+	host := getEnv("HOST", "localhost")
+	originPort := getEnv("ORIGIN_PORT", ":8080") // Public port, including ':'; empty for the scheme's default port.
+	serverPort := getEnv("SERVER_PORT", ":8080")
 
 	origin := fmt.Sprintf("%s://%s%s%s", proto, sub, host, originPort)
 
@@ -47,9 +47,9 @@ func main() {
 	pkey, err := passkey.New(
 		passkey.Config{
 			WebauthnConfig: &webauthn.Config{
-				RPDisplayName: "Passkey Example", // Display Name for your site
-				RPID:          host,              // Generally the FQDN for your site
-				RPOrigins:     []string{origin},  // The origin URLs allowed for WebAuthn
+				RPDisplayName: "Passkey Example",
+				RPID:          host,
+				RPOrigins:     []string{origin},
 			},
 			UserStore:                users,
 			LoginSessionStore:        NewSessionStore[webauthn.SessionData](),

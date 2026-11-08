@@ -33,7 +33,6 @@ func TestMountedRoutesRejectOversizedBodies(t *testing.T) {
 					p := &Passkey{
 						cfg:                      Config{WebauthnConfig: &webauthn.Config{RPOrigins: []string{"https://example.com"}}},
 						mux:                      http.NewServeMux(),
-						staticMux:                http.NewServeMux(),
 						log:                      NewMockLogger(t),
 						webAuthn:                 deps.NewMockWebAuthnInterface(t),
 						userStore:                NewMockUserStore(t),
@@ -116,7 +115,6 @@ func TestBeginRoutesRejectLongUsernames(t *testing.T) {
 				p := &Passkey{
 					cfg:       Config{WebauthnConfig: &webauthn.Config{RPOrigins: []string{"https://example.com"}}},
 					mux:       http.NewServeMux(),
-					staticMux: http.NewServeMux(),
 					log:       logger,
 					userStore: NewMockUserStore(t),
 					webAuthn:  deps.NewMockWebAuthnInterface(t),

@@ -71,8 +71,7 @@ type Passkey struct {
 	registrationSessionStore SessionStore[RegistrationSessionData]
 	userSessionStore         SessionStore[UserSessionData]
 
-	mux       *http.ServeMux
-	staticMux *http.ServeMux
+	mux *http.ServeMux
 
 	log            Logger
 	cookieSettings CookieSettings
@@ -88,8 +87,7 @@ func New(cfg Config, opts ...Option) (*Passkey, error) {
 		registrationSessionStore: cfg.RegistrationSessionStore,
 		userSessionStore:         cfg.UserSessionStore,
 
-		mux:       http.NewServeMux(),
-		staticMux: http.NewServeMux(),
+		mux: http.NewServeMux(),
 	}
 
 	p.setupCookieSettings()
@@ -190,11 +188,9 @@ func (p *Passkey) setupRoutes() {
 	p.mux.HandleFunc(pathRegisterFinish, p.mutationHandler(limitRequestBody(p.finishRegistration)))
 	p.mux.HandleFunc(pathLoginBegin, p.mutationHandler(limitRequestBody(p.beginLogin)))
 	p.mux.HandleFunc(pathLoginFinish, p.mutationHandler(limitRequestBody(p.finishLogin)))
-
-	p.staticMux.Handle("/", http.FileServer(http.Dir("./static")))
 }
 
-// MountRoutes mounts passkey routes to mux
+// MountRoutes mounts POST ceremony routes under path, which must end with a slash.
 func (p *Passkey) MountRoutes(mux *http.ServeMux, path string) {
 	mux.Handle(path, http.StripPrefix(path[:len(path)-1], p.mux))
 }

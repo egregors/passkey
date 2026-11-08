@@ -1,6 +1,23 @@
 Changes
 =======
 
+#### Unreleased (next major)
+
+* Replace `User.PutCredential` and `UserStore.Update` with atomic `UserStore.UpdateCredential`.
+  Storage reads and account creation must return detached snapshots; preserve registered
+  credential data, concurrent updates, counters, and clone warnings.
+* Require isolated session-store namespaces, unpredictable tokens, atomic consumption,
+  expiration enforcement, and bounded storage. Full stores return `ErrSessionStoreFull` (HTTP 503).
+* Validate authenticated-session purpose, identity, and expiration. Existing unmarked
+  sessions and sessions using the old production cookie names require a new login.
+* Use `__Host-` production cookies and reject duplicate session cookies.
+  `WithInsecureCookie` uses ordinary names for local HTTP development.
+* Require POST and a configured Origin for all ceremony endpoints and logout.
+  Logout returns 204. Failed verification consumes the ceremony; restart at its begin endpoint.
+* Return stable public errors with explicit HTTP statuses. `Auth` defaults to 401 on failure.
+* Fix the example's shared user-store wiring, bound its session stores, and test its full
+  registration/login/private-page/logout flow in CI.
+
 #### ver.: 1.0.9 (05.08.2026)
 
 * Go WebAuthn dependency update (v0.14.0 -> v0.17.4)

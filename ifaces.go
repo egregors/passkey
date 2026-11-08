@@ -27,6 +27,7 @@ type NewUser struct {
 // UserStore is a persistent storage for users and credentials.
 // Implementations of Create must atomically persist the account and its initial credential,
 // preserving the exact UserID handle, and enforcing unique username and user ID.
+// Create returns ErrUserAlreadyExists on conflicts; lookups return ErrUserNotFound for missing users.
 // Reads and Create return detached snapshots, including credential byte slices.
 // Errors may be logged; adapters must not include secrets or session tokens in them.
 type UserStore interface {
@@ -46,6 +47,7 @@ type UserStore interface {
 // Create must return a unique, cryptographically random token with at least 128 bits of entropy.
 // Serialization must preserve all fields, including Purpose; adapters must not synthesize missing fields.
 // Consume must atomically retrieve and delete the session identified by token to prevent replay.
+// Get and Consume return (nil, false) for missing or expired records.
 // Login and registration handlers consume ceremony sessions before verification, including failed attempts.
 // Stores must bound retained records and reclaim expired entries before rejecting new sessions.
 // Create returns ErrSessionStoreFull when capacity is exhausted; handlers enforce expiration independently.

@@ -53,7 +53,7 @@ func Unauthorized(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusUnauthorized)
 }
 
-// RedirectUnauthorized redirects the user to the target URL with a 401 Unauthorized status code.
+// RedirectUnauthorized returns a 303 redirect to a local target, or Unauthorized for an invalid target.
 func RedirectUnauthorized(target url.URL) http.HandlerFunc {
 	if !isLocalRedirectTarget(target) {
 		return Unauthorized

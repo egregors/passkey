@@ -125,8 +125,6 @@ func (p *Passkey) beginRegistration(w http.ResponseWriter, r *http.Request) {
 	p.log.Debugf("setting cookie")
 	p.setRegistrationSessionCookie(w, t)
 
-	// return the options generated with the session key
-	// options.publicKey contain our registration options
 	JSONResponse(w, options, http.StatusOK)
 
 	p.log.Infof("<<< begin registration: done")
@@ -254,8 +252,6 @@ func (p *Passkey) beginLogin(w http.ResponseWriter, r *http.Request) {
 	p.log.Debugf("setting cookie")
 	p.setLoginSessionCookie(w, t)
 
-	// return the options generated with the session key
-	// options.publicKey contain our registration options
 	JSONResponse(w, options, http.StatusOK)
 
 	p.log.Infof("<<< begin login: done")
@@ -319,7 +315,6 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	p.log.Debugf("got credential")
 
-	// Handle credential.Authenticator.CloneWarning
 	if credential.Authenticator.CloneWarning {
 		p.log.Warnf("the authenticator may be cloned")
 	}
@@ -413,7 +408,6 @@ func (p *Passkey) Logout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// deleteSessionCookie deletes a cookie
 func (p *Passkey) deleteSessionCookie(name string, w http.ResponseWriter) {
 	//nolint:gosec // G124 cannot infer the secure defaults behind cookieSettings.
 	http.SetCookie(w, &http.Cookie{
@@ -428,7 +422,6 @@ func (p *Passkey) deleteSessionCookie(name string, w http.ResponseWriter) {
 	})
 }
 
-// getUsername extracts an username from json request
 func getUsername(r *http.Request) (string, error) {
 	var u struct {
 		Username string `json:"username"`
