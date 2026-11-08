@@ -133,7 +133,11 @@ func (p *Passkey) beginRegistration(w http.ResponseWriter, r *http.Request) {
 func (p *Passkey) finishRegistration(w http.ResponseWriter, r *http.Request) {
 	p.log.Infof(">>> finish registration")
 
-	var err error
+	sid, err := sessionCookie(r, p.cookieSettings.registrationSessionName)
+	if err != nil {
+		writeHandlerError(w, fmt.Errorf("can't get session id: %w", err))
+		return
+	}
 	defer func() {
 		if err != nil {
 			p.deleteSessionCookie(p.cookieSettings.registrationSessionName, w)
@@ -144,17 +148,6 @@ func (p *Passkey) finishRegistration(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	// Get the session key from cookie
-	p.log.Debugf("getting session id from cookie")
-	sid, err := r.Cookie(p.cookieSettings.registrationSessionName)
-	if err != nil {
-		err = fmt.Errorf("can't get session id: %w", err)
-
-		return
-	}
-	p.log.Debugf("got session id")
-
-	// Atomically consume registration session data
 	p.log.Debugf("try to consume session data")
 	regData, ok := p.registrationSessionStore.Consume(sid.Value)
 	if !ok || regData == nil {
@@ -278,9 +271,8 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	// Get the session key from cookie
 	p.log.Debugf("getting session id from cookie")
-	sid, err := r.Cookie(p.cookieSettings.loginSessionName)
+	sid, err := sessionCookie(r, p.cookieSettings.loginSessionName)
 	if err != nil {
 		err = fmt.Errorf("can't get session id: %w", err)
 
@@ -387,9 +379,6 @@ func (p *Passkey) setUserSessionCookie(w http.ResponseWriter, value string) {
 }
 
 func (p *Passkey) setSessionCookie(w http.ResponseWriter, name, value string, maxAge time.Duration) {
-	// Secure is enabled by default and can only be disabled explicitly with
-	// WithInsecureCookie for local development. HttpOnly and SameSite are
-	// initialized to secure values in setupCookieSettings.
 	//nolint:gosec // G124 cannot infer the secure defaults behind cookieSettings.
 	http.SetCookie(w, &http.Cookie{
 		Name:     name,
@@ -402,23 +391,28 @@ func (p *Passkey) setSessionCookie(w http.ResponseWriter, name, value string, ma
 	})
 }
 
-// Logout deletes session from session store and deletes session cookie
+// Logout accepts POST with an allowed Origin, revokes the session, and returns 204.
 func (p *Passkey) Logout(w http.ResponseWriter, r *http.Request) {
-	sid, err := r.Cookie(p.cookieSettings.userSessionName)
+	if !p.allowMutation(w, r) {
+		return
+	}
+	sid, err := sessionCookie(r, p.cookieSettings.userSessionName)
 	if err != nil {
-		p.log.Errorf("can't get session cookie: %s", err.Error())
-
+		if errors.Is(err, http.ErrNoCookie) {
+			w.WriteHeader(http.StatusNoContent)
+		} else {
+			writeHandlerError(w, err)
+		}
 		return
 	}
 
 	p.userSessionStore.Delete(sid.Value)
 	p.deleteSessionCookie(p.cookieSettings.userSessionName, w)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // deleteSessionCookie deletes a cookie
-func (p *Passkey) deleteSessionCookie(name string, w http.ResponseWriter) { //nolint:unparam // it's ok here
-	// Use the same scope and security attributes as the original cookie so the
-	// browser reliably expires that cookie instead of creating a second one.
+func (p *Passkey) deleteSessionCookie(name string, w http.ResponseWriter) {
 	//nolint:gosec // G124 cannot infer the secure defaults behind cookieSettings.
 	http.SetCookie(w, &http.Cookie{
 		Name:     name,

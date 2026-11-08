@@ -44,7 +44,7 @@ func TestBeginLoginServerExpiration(t *testing.T) {
 			require.NoError(t, err)
 			before := time.Now()
 			rec := httptest.NewRecorder()
-			p.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, pathLoginBegin, body("username", "expiry-user")))
+			p.mux.ServeHTTP(rec, withAllowedOrigin(httptest.NewRequest(http.MethodPost, pathLoginBegin, body("username", "expiry-user"))))
 			after := time.Now()
 			require.Equal(t, http.StatusOK, rec.Code)
 			cookies := rec.Result().Cookies()

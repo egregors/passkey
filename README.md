@@ -161,6 +161,14 @@ func main() {
 
 	l := log.NewLogger()
 
+	opts := []passkey.Option{
+		passkey.WithLogger(l),
+		passkey.WithUserSessionMaxAge(60 * time.Minute),
+		passkey.WithSessionCookieNamePrefix("passkeyDemo"),
+	}
+	if proto == "http" {
+		opts = append(opts, passkey.WithInsecureCookie())
+	}
 	pkey, err := passkey.New(
 		passkey.Config{
 			WebauthnConfig: &webauthn.Config{
@@ -173,10 +181,7 @@ func main() {
 			RegistrationSessionStore: NewSessionStore[passkey.RegistrationSessionData](),
 			UserSessionStore:         NewSessionStore[passkey.UserSessionData](),
 		},
-		passkey.WithLogger(l),
-		passkey.WithUserSessionMaxAge(60*time.Minute),
-		passkey.WithSessionCookieNamePrefix("passkeyDemo"),
-		passkey.WithInsecureCookie(), // In order to support Safari on localhost. Do not use in production.
+		opts...,
 	)
 	if err != nil {
 		panic(err)
@@ -190,10 +195,7 @@ func main() {
 	// public routes
 	web, _ := fs.Sub(webFiles, "web")
 	mux.Handle("/", http.FileServer(http.FS(web)))
-	mux.HandleFunc("/logout", func(w http.ResponseWriter, r *http.Request) {
-		pkey.Logout(w, r)
-		http.Redirect(w, r, "/", http.StatusSeeOther)
-	})
+	mux.HandleFunc("/logout", pkey.Logout)
 
 	// private routes
 	privateMux := http.NewServeMux()
@@ -285,6 +287,21 @@ refusing new sessions. Return `ErrSessionStoreFull` when full; handlers respond
 with HTTP 503 and do not set a new session cookie. The example store retains at
 most 1024 records per instance and removes expired entries on creation or lookup.
 It needs no background cleanup goroutine.
+
+Production cookies use `__Host-` names with `Secure`, `Path=/`, and no `Domain`.
+`WithInsecureCookie` uses ordinary names for local HTTP development. Custom name
+prefixes must form valid cookie names; invalid configuration fails in `New`.
+Duplicate same-name session cookies are rejected, including during logout.
+
+All ceremony endpoints and `Logout` require POST and exactly one `Origin` header
+matching a configured `RPOrigins` value. Missing, `null`, or unlisted origins return
+403; other methods return 405 with `Allow: POST`. Checks run before reading the
+body or changing sessions. Non-browser clients must also send an allowed Origin;
+this is CSRF protection and does not replace assertion/session verification.
+Configure serialized origins (`scheme://host[:port]`, without a trailing slash).
+Successful logout returns 204, including when its cookie is already absent.
+Browser clients should POST logout and navigate after a successful response, as
+shown in the example. Browsers with unprefixed production cookies require a new login.
 
 Apply request admission/rate limiting in HTTP middleware before forwarding to
 the mux populated by `MountRoutes`. This rejects requests before WebAuthn

@@ -142,6 +142,7 @@ func TestWithSessionCookieNamePrefix(t *testing.T) {
 	tests := []struct {
 		name                        string
 		prefix                      string
+		wantErr                     bool
 		wantLoginSessionName        string
 		wantRegistrationSessionName string
 		wantUserSessionName         string
@@ -149,23 +150,21 @@ func TestWithSessionCookieNamePrefix(t *testing.T) {
 		{
 			name:                        "empty: default prefix will be used",
 			prefix:                      "",
-			wantLoginSessionName:        "pkLsid",
-			wantRegistrationSessionName: "pkRsid",
-			wantUserSessionName:         "pkUsid",
+			wantLoginSessionName:        "__Host-pkLsid",
+			wantRegistrationSessionName: "__Host-pkRsid",
+			wantUserSessionName:         "__Host-pkUsid",
 		},
 		{
 			name:                        "custom prefix",
 			prefix:                      "custom",
-			wantLoginSessionName:        "customLsid",
-			wantRegistrationSessionName: "customRsid",
-			wantUserSessionName:         "customUsid",
+			wantLoginSessionName:        "__Host-customLsid",
+			wantRegistrationSessionName: "__Host-customRsid",
+			wantUserSessionName:         "__Host-customUsid",
 		},
 		{
-			name:                        "custom prefix with space and multiple words",
-			prefix:                      "custom prefix",
-			wantLoginSessionName:        "custom prefixLsid",
-			wantRegistrationSessionName: "custom prefixRsid",
-			wantUserSessionName:         "custom prefixUsid",
+			name:    "custom prefix with space and multiple words",
+			prefix:  "custom prefix",
+			wantErr: true,
 		},
 	}
 	for _, tt := range tests {
@@ -184,6 +183,10 @@ func TestWithSessionCookieNamePrefix(t *testing.T) {
 				},
 				WithSessionCookieNamePrefix(tt.prefix),
 			)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
 			require.NoError(t, err)
 			assert.Equalf(t, tt.wantLoginSessionName, p.cookieSettings.loginSessionName, "WithSessionCookieNamePrefix(%v)", tt.prefix)
 			assert.Equalf(t, tt.wantRegistrationSessionName, p.cookieSettings.registrationSessionName, "WithSessionCookieNamePrefix(%v)", tt.prefix)

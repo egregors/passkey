@@ -31,6 +31,7 @@ func TestMountedRoutesRejectOversizedBodies(t *testing.T) {
 				t.Run(fmt.Sprintf("%s/length=%d/%s", path, length, input.name), func(t *testing.T) {
 					// No dependencies may be called, including logging inside the handlers.
 					p := &Passkey{
+						cfg:                      Config{WebauthnConfig: &webauthn.Config{RPOrigins: []string{"https://example.com"}}},
 						mux:                      http.NewServeMux(),
 						staticMux:                http.NewServeMux(),
 						log:                      NewMockLogger(t),
@@ -46,6 +47,7 @@ func TestMountedRoutesRejectOversizedBodies(t *testing.T) {
 					padding := strings.Repeat(" ", maxRequestBodyBytes+1-len(input.prefix)-len(input.suffix))
 					payload := input.prefix + padding + input.suffix
 					req := httptest.NewRequest(http.MethodPost, "/api"+path, strings.NewReader(payload))
+					req.Header.Set("Origin", "https://example.com")
 					req.ContentLength = length
 					if length == -1 {
 						req.TransferEncoding = []string{"chunked"}
@@ -112,6 +114,7 @@ func TestBeginRoutesRejectLongUsernames(t *testing.T) {
 				logger.On("Debugf", mock.Anything).Return()
 				logger.On("Errorf", "%s", mock.Anything).Return()
 				p := &Passkey{
+					cfg:       Config{WebauthnConfig: &webauthn.Config{RPOrigins: []string{"https://example.com"}}},
 					mux:       http.NewServeMux(),
 					staticMux: http.NewServeMux(),
 					log:       logger,
@@ -120,6 +123,7 @@ func TestBeginRoutesRejectLongUsernames(t *testing.T) {
 				}
 				p.setupRoutes()
 				req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"username":"`+name+`"}`))
+				req.Header.Set("Origin", "https://example.com")
 				rec := httptest.NewRecorder()
 				p.mux.ServeHTTP(rec, req)
 				assert.Equal(t, http.StatusBadRequest, rec.Code)

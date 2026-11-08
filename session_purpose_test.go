@@ -73,7 +73,7 @@ func TestSessionPurposeWithSharedBackend(t *testing.T) {
 			f.p.userSessionStore = userStore
 			f.users.On("GetByName", "replay-user").Return(f.user, nil).Once()
 			begin := httptest.NewRecorder()
-			f.p.mux.ServeHTTP(begin, httptest.NewRequest(http.MethodPost, pathLoginBegin, body("username", "replay-user")))
+			f.p.mux.ServeHTTP(begin, withAllowedOrigin(httptest.NewRequest(http.MethodPost, pathLoginBegin, body("username", "replay-user"))))
 			require.Equal(t, http.StatusOK, begin.Code)
 			cookies := begin.Result().Cookies()
 			require.Len(t, cookies, 1)

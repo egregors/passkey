@@ -47,7 +47,7 @@ func TestAuth(t *testing.T) {
 				req: func() *http.Request {
 					req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 					req.AddCookie(&http.Cookie{
-						Name:  camelCaseConcat(defaultSessionNamePrefix, defaultUserSessionName),
+						Name:  "__Host-" + camelCaseConcat(defaultSessionNamePrefix, defaultUserSessionName),
 						Value: "valid",
 					})
 
@@ -80,7 +80,7 @@ func TestAuth(t *testing.T) {
 				req: func() *http.Request {
 					req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 					req.AddCookie(&http.Cookie{
-						Name:  camelCaseConcat(defaultSessionNamePrefix, defaultUserSessionName),
+						Name:  "__Host-" + camelCaseConcat(defaultSessionNamePrefix, defaultUserSessionName),
 						Value: "valid",
 					})
 
@@ -111,7 +111,7 @@ func TestAuth(t *testing.T) {
 				req: func() *http.Request {
 					req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 					req.AddCookie(&http.Cookie{
-						Name:  camelCaseConcat(defaultSessionNamePrefix, defaultUserSessionName),
+						Name:  "__Host-" + camelCaseConcat(defaultSessionNamePrefix, defaultUserSessionName),
 						Value: "missing",
 					})
 
@@ -156,7 +156,7 @@ func TestAuth(t *testing.T) {
 				req: func() *http.Request {
 					req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 					req.AddCookie(&http.Cookie{
-						Name:  camelCaseConcat(defaultSessionNamePrefix, defaultUserSessionName),
+						Name:  "__Host-" + camelCaseConcat(defaultSessionNamePrefix, defaultUserSessionName),
 						Value: "missing",
 					})
 
@@ -186,7 +186,7 @@ func TestAuth(t *testing.T) {
 				req: func() *http.Request {
 					req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 					req.AddCookie(&http.Cookie{
-						Name:  camelCaseConcat(defaultSessionNamePrefix, defaultUserSessionName),
+						Name:  "__Host-" + camelCaseConcat(defaultSessionNamePrefix, defaultUserSessionName),
 						Value: "expired",
 					})
 

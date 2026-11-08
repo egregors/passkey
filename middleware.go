@@ -14,7 +14,7 @@ type AuthUserIDKey string
 func (p *Passkey) Auth(userIDKey AuthUserIDKey, onSuccess, onFail http.HandlerFunc) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			sid, err := r.Cookie(p.cookieSettings.userSessionName)
+			sid, err := sessionCookie(r, p.cookieSettings.userSessionName)
 			if err != nil {
 				exec(onFail, w, r)
 

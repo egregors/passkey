@@ -129,7 +129,7 @@ func TestPasskey_beginRegistration(t *testing.T) {
 			checkCookie: func(cookies []*http.Cookie) {
 				assert.Len(t, cookies, 1)
 				c := cookies[0]
-				assert.Equal(t, camelCaseConcat(defaultSessionNamePrefix, defaultRegistrationSessionName), c.Name)
+				assert.Equal(t, "__Host-"+camelCaseConcat(defaultSessionNamePrefix, defaultRegistrationSessionName), c.Name)
 				assert.Equal(t, "session-token-1234", c.Value)
 				assert.Equal(t, "/", c.Path)
 				assert.Equal(t, int(defaultRegistrationSessionMaxAge.Seconds()), c.MaxAge)
@@ -301,7 +301,7 @@ func TestPasskey_finishRegistration(t *testing.T) {
 			r: func() *http.Request {
 				req := httptest.NewRequest(http.MethodPost, pathRegisterFinish, http.NoBody)
 				req.AddCookie(&http.Cookie{
-					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultRegistrationSessionName),
+					Name:  "__Host-" + camelCaseConcat(defaultSessionNamePrefix, defaultRegistrationSessionName),
 					Value: "session-token-1234",
 				})
 
@@ -347,7 +347,7 @@ func TestPasskey_finishRegistration(t *testing.T) {
 			checkCookie: func(cookies []*http.Cookie) {
 				require.Len(t, cookies, 1)
 				c := cookies[0]
-				assert.Equal(t, camelCaseConcat(defaultSessionNamePrefix, defaultRegistrationSessionName), c.Name)
+				assert.Equal(t, "__Host-"+camelCaseConcat(defaultSessionNamePrefix, defaultRegistrationSessionName), c.Name)
 				assert.Empty(t, c.Value)
 				assert.Equal(t, -1, c.MaxAge)
 			},
@@ -379,7 +379,7 @@ func TestPasskey_finishRegistration(t *testing.T) {
 			r: func() *http.Request {
 				req := httptest.NewRequest(http.MethodPost, pathRegisterFinish, http.NoBody)
 				req.AddCookie(&http.Cookie{
-					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultRegistrationSessionName),
+					Name:  "__Host-" + camelCaseConcat(defaultSessionNamePrefix, defaultRegistrationSessionName),
 					Value: "session-token-1234",
 				})
 
@@ -411,7 +411,7 @@ func TestPasskey_finishRegistration(t *testing.T) {
 			r: func() *http.Request {
 				req := httptest.NewRequest(http.MethodPost, pathRegisterFinish, http.NoBody)
 				req.AddCookie(&http.Cookie{
-					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultRegistrationSessionName),
+					Name:  "__Host-" + camelCaseConcat(defaultSessionNamePrefix, defaultRegistrationSessionName),
 					Value: "session-token-1234",
 				})
 
@@ -447,7 +447,7 @@ func TestPasskey_finishRegistration(t *testing.T) {
 			r: func() *http.Request {
 				req := httptest.NewRequest(http.MethodPost, pathRegisterFinish, http.NoBody)
 				req.AddCookie(&http.Cookie{
-					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultRegistrationSessionName),
+					Name:  "__Host-" + camelCaseConcat(defaultSessionNamePrefix, defaultRegistrationSessionName),
 					Value: "session-token-1234",
 				})
 
@@ -489,7 +489,7 @@ func TestPasskey_finishRegistration(t *testing.T) {
 			r: func() *http.Request {
 				req := httptest.NewRequest(http.MethodPost, pathRegisterFinish, http.NoBody)
 				req.AddCookie(&http.Cookie{
-					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultRegistrationSessionName),
+					Name:  "__Host-" + camelCaseConcat(defaultSessionNamePrefix, defaultRegistrationSessionName),
 					Value: "session-token-1234",
 				})
 
@@ -620,7 +620,7 @@ func TestPasskey_beginLogin(t *testing.T) {
 			checkCookie: func(cookies []*http.Cookie) {
 				assert.Len(t, cookies, 1)
 				c := cookies[0]
-				assert.Equal(t, camelCaseConcat(defaultSessionNamePrefix, defaultLoginSessionName), c.Name)
+				assert.Equal(t, "__Host-"+camelCaseConcat(defaultSessionNamePrefix, defaultLoginSessionName), c.Name)
 				assert.Equal(t, "session-token-1234", c.Value)
 				assert.Equal(t, "/", c.Path)
 				assert.Equal(t, int(defaultLoginSessionMaxAge.Seconds()), c.MaxAge)
@@ -815,7 +815,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 			r: func() *http.Request {
 				req := httptest.NewRequest(http.MethodPost, pathLoginFinish, http.NoBody)
 				req.AddCookie(&http.Cookie{
-					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultLoginSessionName),
+					Name:  "__Host-" + camelCaseConcat(defaultSessionNamePrefix, defaultLoginSessionName),
 					Value: "session-token-1234",
 				})
 
@@ -896,7 +896,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 			r: func() *http.Request {
 				req := httptest.NewRequest(http.MethodPost, pathLoginFinish, http.NoBody)
 				req.AddCookie(&http.Cookie{
-					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultLoginSessionName),
+					Name:  "__Host-" + camelCaseConcat(defaultSessionNamePrefix, defaultLoginSessionName),
 					Value: "session-token-1234",
 				})
 
@@ -931,7 +931,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 			r: func() *http.Request {
 				req := httptest.NewRequest(http.MethodPost, pathLoginFinish, http.NoBody)
 				req.AddCookie(&http.Cookie{
-					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultLoginSessionName),
+					Name:  "__Host-" + camelCaseConcat(defaultSessionNamePrefix, defaultLoginSessionName),
 					Value: "session-token-1234",
 				})
 
@@ -972,7 +972,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 			r: func() *http.Request {
 				req := httptest.NewRequest(http.MethodPost, pathLoginFinish, http.NoBody)
 				req.AddCookie(&http.Cookie{
-					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultLoginSessionName),
+					Name:  "__Host-" + camelCaseConcat(defaultSessionNamePrefix, defaultLoginSessionName),
 					Value: "session-token-1234",
 				})
 
@@ -1019,7 +1019,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 			r: func() *http.Request {
 				req := httptest.NewRequest(http.MethodPost, pathLoginFinish, http.NoBody)
 				req.AddCookie(&http.Cookie{
-					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultLoginSessionName),
+					Name:  "__Host-" + camelCaseConcat(defaultSessionNamePrefix, defaultLoginSessionName),
 					Value: "session-token-1234",
 				})
 
@@ -1070,7 +1070,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 			r: func() *http.Request {
 				req := httptest.NewRequest(http.MethodPost, pathLoginFinish, http.NoBody)
 				req.AddCookie(&http.Cookie{
-					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultLoginSessionName),
+					Name:  "__Host-" + camelCaseConcat(defaultSessionNamePrefix, defaultLoginSessionName),
 					Value: "session-token-1234",
 				})
 
@@ -1169,9 +1169,9 @@ func TestPasskey_Logout(t *testing.T) {
 			name: "succ: logout deletes session and cookie",
 			w:    httptest.NewRecorder(),
 			r: func() *http.Request {
-				req := httptest.NewRequest(http.MethodGet, "/logout", http.NoBody)
+				req := httptest.NewRequest(http.MethodPost, "/logout", http.NoBody)
 				req.AddCookie(&http.Cookie{
-					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultUserSessionName),
+					Name:  "__Host-" + camelCaseConcat(defaultSessionNamePrefix, defaultUserSessionName),
 					Value: "user-session-token-1234",
 				})
 
@@ -1187,7 +1187,7 @@ func TestPasskey_Logout(t *testing.T) {
 			checkCookie: func(cookies []*http.Cookie) {
 				require.Len(t, cookies, 1)
 				c := cookies[0]
-				assert.Equal(t, camelCaseConcat(defaultSessionNamePrefix, defaultUserSessionName), c.Name)
+				assert.Equal(t, "__Host-"+camelCaseConcat(defaultSessionNamePrefix, defaultUserSessionName), c.Name)
 				assert.Empty(t, c.Value)
 				assert.Equal(t, -1, c.MaxAge)
 			},
@@ -1196,7 +1196,7 @@ func TestPasskey_Logout(t *testing.T) {
 			name: "err: no cookie",
 			w:    httptest.NewRecorder(),
 			r: func() *http.Request {
-				return httptest.NewRequest(http.MethodGet, "/logout", http.NoBody)
+				return httptest.NewRequest(http.MethodPost, "/logout", http.NoBody)
 			},
 			userSessionStore: func() SessionStore[UserSessionData] {
 				return NewMockSessionStore[UserSessionData](t)
@@ -1224,7 +1224,10 @@ func TestPasskey_Logout(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			p.Logout(tt.w, tt.r())
+			req := tt.r()
+			req.Header.Set("Origin", "localhost")
+			p.Logout(tt.w, req)
+			assert.Equal(t, http.StatusNoContent, tt.w.Code)
 
 			if tt.checkCookie != nil {
 				tt.checkCookie(tt.w.Result().Cookies())

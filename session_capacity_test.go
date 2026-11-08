@@ -34,6 +34,7 @@ func TestBeginAdmissionMiddleware(t *testing.T) {
 			})
 			for _, status := range []int{http.StatusOK, http.StatusTooManyRequests} {
 				req := httptest.NewRequest(http.MethodPost, "/api"+path, body("username", "user"))
+				req.Header.Set("Origin", "https://example.com")
 				rec := httptest.NewRecorder()
 				handler.ServeHTTP(rec, req)
 				assert.Equal(t, status, rec.Code)

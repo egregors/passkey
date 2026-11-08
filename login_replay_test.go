@@ -170,7 +170,7 @@ func newLoginReplayFixture(t *testing.T) *loginReplayFixture {
 	require.NoError(t, err)
 	users.On("GetByName", "replay-user").Return(user, nil).Once()
 	begin := httptest.NewRecorder()
-	p.mux.ServeHTTP(begin, httptest.NewRequest(http.MethodPost, pathLoginBegin, body("username", "replay-user")))
+	p.mux.ServeHTTP(begin, withAllowedOrigin(httptest.NewRequest(http.MethodPost, pathLoginBegin, body("username", "replay-user"))))
 	require.Equal(t, http.StatusOK, begin.Code)
 	cookies := begin.Result().Cookies()
 	require.Len(t, cookies, 1)
@@ -201,6 +201,7 @@ func newLoginReplayFixture(t *testing.T) *loginReplayFixture {
 
 func (f *loginReplayFixture) finish(payload []byte) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodPost, pathLoginFinish, bytes.NewReader(payload))
+	req.Header.Set("Origin", "https://example.com")
 	req.AddCookie(&http.Cookie{Name: f.p.cookieSettings.loginSessionName, Value: f.token})
 	rec := httptest.NewRecorder()
 	f.p.mux.ServeHTTP(rec, req)

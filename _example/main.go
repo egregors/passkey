@@ -35,6 +35,14 @@ func main() {
 	l := log.NewLogger()
 	l.Enable(log.DBG)
 
+	opts := []passkey.Option{
+		passkey.WithLogger(l),
+		passkey.WithUserSessionMaxAge(60 * time.Minute),
+		passkey.WithSessionCookieNamePrefix("passkeyDemo"),
+	}
+	if proto == "http" {
+		opts = append(opts, passkey.WithInsecureCookie())
+	}
 	pkey, err := passkey.New(
 		passkey.Config{
 			WebauthnConfig: &webauthn.Config{
@@ -47,10 +55,7 @@ func main() {
 			RegistrationSessionStore: NewSessionStore[passkey.RegistrationSessionData](),
 			UserSessionStore:         NewSessionStore[passkey.UserSessionData](),
 		},
-		passkey.WithLogger(l),
-		passkey.WithUserSessionMaxAge(60*time.Minute),
-		passkey.WithSessionCookieNamePrefix("passkeyDemo"),
-		passkey.WithInsecureCookie(), // In order to support Safari on localhost. Do not use in production.
+		opts...,
 	)
 	if err != nil {
 		panic(err)
@@ -64,10 +69,7 @@ func main() {
 	// public routes
 	web, _ := fs.Sub(webFiles, "web")
 	mux.Handle("/", http.FileServer(http.FS(web)))
-	mux.HandleFunc("/logout", func(w http.ResponseWriter, r *http.Request) {
-		pkey.Logout(w, r)
-		http.Redirect(w, r, "/", http.StatusSeeOther)
-	})
+	mux.HandleFunc("/logout", pkey.Logout)
 
 	// private routes
 	privateMux := http.NewServeMux()

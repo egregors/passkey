@@ -115,6 +115,7 @@ func TestCookieLessBeginRequestsAreBounded(t *testing.T) {
 			p.MountRoutes(mux, "/api/")
 			for i := range sessionStoreCapacity + 2 {
 				req := httptest.NewRequest(http.MethodPost, "/api"+path, strings.NewReader(`{"username":"user"}`))
+				req.Header.Set("Origin", "https://example.com")
 				rec := httptest.NewRecorder()
 				mux.ServeHTTP(rec, req)
 				if i < sessionStoreCapacity {
