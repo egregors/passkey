@@ -37,6 +37,9 @@ type UserStore interface {
 }
 
 // SessionStore is a storage for session data.
+// Stores must use distinct key namespaces for each session type and application/tenant scope.
+// Create must return a unique, cryptographically random token with at least 128 bits of entropy.
+// Serialization must preserve all fields, including Purpose; adapters must not synthesize missing fields.
 // Consume must atomically retrieve and delete the session identified by token to prevent replay.
 // Login and registration handlers consume ceremony sessions before verification, including failed attempts.
 // Implementations must also clean up expired records to reclaim storage; handlers enforce expiration independently.

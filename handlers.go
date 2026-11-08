@@ -344,6 +344,7 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 
 	p.log.Debugf("try to save user session")
 	t, err := p.userSessionStore.Create(UserSessionData{
+		Purpose: userSessionPurpose,
 		UserID:  session.UserID,
 		Expires: time.Now().Add(p.cookieSettings.userSessionMaxAge),
 	})

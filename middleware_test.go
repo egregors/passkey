@@ -34,6 +34,7 @@ func TestAuth(t *testing.T) {
 					store.EXPECT().
 						Get("valid").
 						Return(&UserSessionData{
+							Purpose: userSessionPurpose,
 							UserID:  []byte("42"),
 							Expires: time.Now().Add(time.Hour),
 						}, true).
@@ -63,6 +64,7 @@ func TestAuth(t *testing.T) {
 					store.EXPECT().
 						Get("valid").
 						Return(&UserSessionData{
+							Purpose: userSessionPurpose,
 							UserID:  []byte("42"),
 							Expires: time.Now().Add(time.Hour),
 						}, true).
@@ -171,6 +173,7 @@ func TestAuth(t *testing.T) {
 					store.EXPECT().
 						Get("expired").
 						Return(&UserSessionData{
+							Purpose: userSessionPurpose,
 							UserID:  []byte("42"),
 							Expires: time.Now().Add(-time.Hour),
 						}, true).

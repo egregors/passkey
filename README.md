@@ -266,6 +266,14 @@ Expired sessions and legacy login sessions without an expiration are rejected an
 consumed before user lookup or signature verification; the client must start a new
 login ceremony. Session stores must also clean up expired records to reclaim space.
 
+Authenticated sessions carry a purpose/version marker set after successful login.
+`Auth` rejects sessions with a missing or incorrect marker, an empty user ID, or an
+elapsed expiration. Existing sessions without the marker require a new login.
+Storage serialization must preserve all fields and must not fill in missing markers.
+Use separate key namespaces for each of the three session stores and each
+application/tenant scope. Tokens must be unique and cryptographically random with
+at least 128 bits of entropy.
+
 | Method                                                                                            | Description                                                                                         |
 |---------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------|
 | `New(cfg Config, opts ...Option) (*Passkey, error)`                                               | Creates a new Passkey instance.                                                                     |

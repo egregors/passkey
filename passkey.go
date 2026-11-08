@@ -24,6 +24,7 @@ const (
 	defaultLoginSessionMaxAge        = 5 * time.Minute
 	defaultRegistrationSessionMaxAge = 5 * time.Minute
 	defaultUserSessionMaxAge         = 60 * time.Minute
+	userSessionPurpose               = "passkey:user-session:v1"
 )
 
 type Config struct {
@@ -41,6 +42,7 @@ type RegistrationSessionData struct {
 }
 
 type UserSessionData struct {
+	Purpose string
 	UserID  []byte
 	Expires time.Time
 }
