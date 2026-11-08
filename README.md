@@ -280,6 +280,17 @@ Use separate key namespaces for each of the three session stores and each
 application/tenant scope. Tokens must be unique and cryptographically random with
 at least 128 bits of entropy.
 
+Session stores must have finite capacity and reclaim expired records before
+refusing new sessions. Return `ErrSessionStoreFull` when full; handlers respond
+with HTTP 503 and do not set a new session cookie. The example store retains at
+most 1024 records per instance and removes expired entries on creation or lookup.
+It needs no background cleanup goroutine.
+
+Apply request admission/rate limiting in HTTP middleware before forwarding to
+the mux populated by `MountRoutes`. This rejects requests before WebAuthn
+generation or storage allocation, including requests without cookies. The policy
+belongs to the application; storage capacity remains a separate hard limit.
+
 | Method                                                                                            | Description                                                                                         |
 |---------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------|
 | `New(cfg Config, opts ...Option) (*Passkey, error)`                                               | Creates a new Passkey instance.                                                                     |

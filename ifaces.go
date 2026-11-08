@@ -46,7 +46,8 @@ type UserStore interface {
 // Serialization must preserve all fields, including Purpose; adapters must not synthesize missing fields.
 // Consume must atomically retrieve and delete the session identified by token to prevent replay.
 // Login and registration handlers consume ceremony sessions before verification, including failed attempts.
-// Implementations must also clean up expired records to reclaim storage; handlers enforce expiration independently.
+// Stores must bound retained records and reclaim expired entries before rejecting new sessions.
+// Create returns ErrSessionStoreFull when capacity is exhausted; handlers enforce expiration independently.
 type SessionStore[T any] interface {
 	Create(data T) (string, error)
 	Delete(token string)

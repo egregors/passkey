@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/go-webauthn/webauthn/webauthn"
 
@@ -100,13 +101,14 @@ func (s *UserStore) Create(user passkey.NewUser) (passkey.User, error) {
 
 type SessionStore[T any] struct {
 	sessions map[string]T
-	mu       sync.RWMutex
+	mu       sync.Mutex
 }
+
+const sessionStoreCapacity = 1024
 
 func NewSessionStore[T any]() *SessionStore[T] {
 	return &SessionStore[T]{
 		sessions: make(map[string]T),
-		mu:       sync.RWMutex{},
 	}
 }
 
@@ -124,23 +126,37 @@ func (s *SessionStore[T]) Create(data T) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	sID, err := genSessionID()
-	if err != nil {
-		return "", err
+	now := time.Now()
+	for token, session := range s.sessions {
+		if !now.Before(sessionExpiration(session)) {
+			delete(s.sessions, token)
+		}
 	}
-
-	// FIXME: there could be collisions, but in purpose of example we don't care
-	s.sessions[sID] = data
-
-	return sID, nil
+	if !now.Before(sessionExpiration(data)) {
+		return "", fmt.Errorf("session has expired")
+	}
+	if len(s.sessions) >= sessionStoreCapacity {
+		return "", passkey.ErrSessionStoreFull
+	}
+	for {
+		token, err := genSessionID()
+		if err != nil {
+			return "", err
+		}
+		if _, exists := s.sessions[token]; !exists {
+			s.sessions[token] = data
+			return token, nil
+		}
+	}
 }
 
 func (s *SessionStore[T]) Get(token string) (*T, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	val, ok := s.sessions[token]
-	if !ok {
+	if !ok || !time.Now().Before(sessionExpiration(val)) {
+		delete(s.sessions, token)
 		return nil, false
 	}
 	return &val, true
@@ -151,11 +167,10 @@ func (s *SessionStore[T]) Consume(token string) (*T, bool) {
 	defer s.mu.Unlock()
 
 	val, ok := s.sessions[token]
-	if !ok {
+	delete(s.sessions, token)
+	if !ok || !time.Now().Before(sessionExpiration(val)) {
 		return nil, false
 	}
-	delete(s.sessions, token)
-
 	return &val, true
 }
 
@@ -164,4 +179,17 @@ func (s *SessionStore[T]) Delete(token string) {
 	defer s.mu.Unlock()
 
 	delete(s.sessions, token)
+}
+
+func sessionExpiration(data any) time.Time {
+	switch v := data.(type) {
+	case webauthn.SessionData:
+		return v.Expires
+	case passkey.RegistrationSessionData:
+		return v.Expires
+	case passkey.UserSessionData:
+		return v.Expires
+	default:
+		return time.Time{}
+	}
 }

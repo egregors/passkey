@@ -55,7 +55,7 @@ func (p *Passkey) beginRegistration(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		if err != nil {
 			p.log.Errorf("%s", err.Error())
-			JSONResponse(w, err.Error(), http.StatusBadRequest)
+			writeHandlerError(w, err)
 			p.log.Debugf("begin registration: done with error")
 		}
 	}()
@@ -138,7 +138,7 @@ func (p *Passkey) finishRegistration(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			p.deleteSessionCookie(p.cookieSettings.registrationSessionName, w)
 			p.log.Errorf("%s", err.Error())
-			JSONResponse(w, err.Error(), http.StatusBadRequest)
+			writeHandlerError(w, err)
 			p.log.Debugf("cleaned up session cookie")
 			p.log.Debugf("<<< finish registration: done with error")
 		}
@@ -210,7 +210,7 @@ func (p *Passkey) beginLogin(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		if err != nil {
 			p.log.Errorf("%s", err.Error())
-			JSONResponse(w, err.Error(), http.StatusBadRequest)
+			writeHandlerError(w, err)
 			p.log.Debugf("<<< begin login: done with error")
 		}
 	}()
@@ -273,7 +273,7 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		if err != nil {
 			p.log.Errorf("%s", err.Error())
-			JSONResponse(w, err.Error(), http.StatusBadRequest)
+			writeHandlerError(w, err)
 			p.log.Debugf("<<< finish login: done with error")
 		}
 	}()
@@ -450,6 +450,14 @@ func getUsername(r *http.Request) (string, error) {
 	}
 
 	return u.Username, nil
+}
+
+func writeHandlerError(w http.ResponseWriter, err error) {
+	if errors.Is(err, ErrSessionStoreFull) {
+		JSONResponse(w, ErrSessionStoreFull.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	JSONResponse(w, err.Error(), http.StatusBadRequest)
 }
 
 // JSONResponse sends json response
