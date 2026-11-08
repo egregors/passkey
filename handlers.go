@@ -9,6 +9,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/go-webauthn/webauthn/protocol"
 )
 
 const (
@@ -151,14 +153,14 @@ func (p *Passkey) finishRegistration(w http.ResponseWriter, r *http.Request) {
 	p.log.Debugf("try to consume session data")
 	regData, ok := p.registrationSessionStore.Consume(sid.Value)
 	if !ok || regData == nil {
-		err = fmt.Errorf("can't get session data")
+		err = fmt.Errorf("%w: can't get session data", errInvalidRequest)
 
 		return
 	}
 	p.log.Debugf("got session data")
 
 	if !regData.Expires.IsZero() && regData.Expires.Before(time.Now()) {
-		err = fmt.Errorf("registration session has expired")
+		err = fmt.Errorf("%w: registration session has expired", errInvalidRequest)
 
 		return
 	}
@@ -171,7 +173,7 @@ func (p *Passkey) finishRegistration(w http.ResponseWriter, r *http.Request) {
 	p.log.Debugf("try to get credential from webauthn")
 	credential, err := p.webAuthn.FinishRegistration(user, regData.Session, r)
 	if err != nil {
-		err = fmt.Errorf("can't finish registration: %w", err)
+		err = fmt.Errorf("can't finish registration: %w", verificationError(err))
 
 		return
 	}
@@ -287,14 +289,14 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 	p.log.Debugf("try to consume session data")
 	session, ok := p.loginSessionStore.Consume(sid.Value)
 	if !ok || session == nil {
-		err = fmt.Errorf("can't get session data")
+		err = fmt.Errorf("%w: can't get session data", errInvalidRequest)
 
 		return
 	}
 	p.log.Debugf("got session data")
 
 	if session.Expires.IsZero() || !time.Now().Before(session.Expires) {
-		err = fmt.Errorf("login session has expired")
+		err = fmt.Errorf("%w: login session has expired", errInvalidRequest)
 
 		return
 	}
@@ -311,7 +313,7 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 	p.log.Debugf("try to get credential from webauthn")
 	credential, err := p.webAuthn.FinishLogin(user, *session, r)
 	if err != nil {
-		err = fmt.Errorf("can't finish login: %w", err)
+		err = fmt.Errorf("can't finish login: %w", verificationError(err))
 
 		return
 	}
@@ -433,7 +435,7 @@ func getUsername(r *http.Request) (string, error) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&u); err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
 	if u.Username == "" {
@@ -447,11 +449,40 @@ func getUsername(r *http.Request) (string, error) {
 }
 
 func writeHandlerError(w http.ResponseWriter, err error) {
-	if errors.Is(err, ErrSessionStoreFull) {
-		JSONResponse(w, ErrSessionStoreFull.Error(), http.StatusServiceUnavailable)
-		return
+	status, message := http.StatusInternalServerError, "internal server error"
+	switch {
+	case errors.Is(err, ErrSessionStoreFull):
+		status, message = http.StatusServiceUnavailable, ErrSessionStoreFull.Error()
+	case errors.Is(err, errInvalidRequest), errors.Is(err, http.ErrNoCookie):
+		status, message = http.StatusBadRequest, "invalid request"
+	case errors.Is(err, ErrNoUsername):
+		status, message = http.StatusBadRequest, ErrNoUsername.Error()
+	case errors.Is(err, ErrUsernameTooLong):
+		status, message = http.StatusBadRequest, ErrUsernameTooLong.Error()
+	case errors.Is(err, ErrUserAlreadyExists):
+		status, message = http.StatusConflict, ErrUserAlreadyExists.Error()
+	case errors.Is(err, ErrUserNotFound):
+		status, message = http.StatusNotFound, ErrUserNotFound.Error()
+	case errors.Is(err, ErrCredentialNotFound):
+		status, message = http.StatusNotFound, ErrCredentialNotFound.Error()
 	}
-	JSONResponse(w, err.Error(), http.StatusBadRequest)
+	JSONResponse(w, message, status)
+}
+
+func verificationError(err error) error {
+	var failure *protocol.Error
+	if errors.As(err, &failure) && failure != nil {
+		switch failure.Type {
+		case protocol.ErrBadRequest.Type, protocol.ErrPolicyRestriction.Type,
+			protocol.ErrChallengeMismatch.Type, protocol.ErrParsingData.Type,
+			protocol.ErrAuthData.Type, protocol.ErrVerification.Type,
+			protocol.ErrAttestation.Type, protocol.ErrInvalidAttestation.Type,
+			protocol.ErrAttestationCertificate.Type, protocol.ErrAssertionSignature.Type,
+			protocol.ErrUnsupportedKey.Type, protocol.ErrUnsupportedAlgorithm.Type:
+			return fmt.Errorf("%w: %w", errInvalidRequest, err)
+		}
+	}
+	return err
 }
 
 // JSONResponse sends json response

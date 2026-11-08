@@ -153,7 +153,7 @@ func TestPasskey_beginRegistration(t *testing.T) {
 			},
 			wantStatus: http.StatusBadRequest,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "can't get username: ")
+				assert.JSONEq(t, `"no username provided"`, string(body))
 			},
 		},
 		{
@@ -176,9 +176,9 @@ func TestPasskey_beginRegistration(t *testing.T) {
 			webAuthn: func() deps.WebAuthnInterface {
 				return deps.NewMockWebAuthnInterface(t)
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusConflict,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "user already exists")
+				assert.JSONEq(t, `"user already exists"`, string(body))
 			},
 		},
 		{
@@ -206,9 +206,9 @@ func TestPasskey_beginRegistration(t *testing.T) {
 
 				return wa
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusInternalServerError,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "can't begin registration: ")
+				assert.JSONEq(t, `"internal server error"`, string(body))
 			},
 		},
 		{
@@ -242,9 +242,9 @@ func TestPasskey_beginRegistration(t *testing.T) {
 
 				return wa
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusInternalServerError,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "can't save session: ")
+				assert.JSONEq(t, `"internal server error"`, string(body))
 			},
 		},
 	}
@@ -370,7 +370,7 @@ func TestPasskey_finishRegistration(t *testing.T) {
 			},
 			wantStatus: http.StatusBadRequest,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "can't get session id: ")
+				assert.JSONEq(t, `"invalid request"`, string(body))
 			},
 		},
 		{
@@ -402,7 +402,7 @@ func TestPasskey_finishRegistration(t *testing.T) {
 			},
 			wantStatus: http.StatusBadRequest,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "can't get session data")
+				assert.JSONEq(t, `"invalid request"`, string(body))
 			},
 		},
 		{
@@ -438,7 +438,7 @@ func TestPasskey_finishRegistration(t *testing.T) {
 			},
 			wantStatus: http.StatusBadRequest,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "registration session has expired")
+				assert.JSONEq(t, `"invalid request"`, string(body))
 			},
 		},
 		{
@@ -478,9 +478,9 @@ func TestPasskey_finishRegistration(t *testing.T) {
 
 				return wa
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusInternalServerError,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "can't finish registration: ")
+				assert.JSONEq(t, `"internal server error"`, string(body))
 			},
 		},
 		{
@@ -526,9 +526,9 @@ func TestPasskey_finishRegistration(t *testing.T) {
 
 				return wa
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusInternalServerError,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "can't create user: ")
+				assert.JSONEq(t, `"internal server error"`, string(body))
 			},
 		},
 	}
@@ -644,7 +644,7 @@ func TestPasskey_beginLogin(t *testing.T) {
 			},
 			wantStatus: http.StatusBadRequest,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "can't get username: ")
+				assert.JSONEq(t, `"no username provided"`, string(body))
 			},
 		},
 		{
@@ -666,9 +666,9 @@ func TestPasskey_beginLogin(t *testing.T) {
 			webAuthn: func() deps.WebAuthnInterface {
 				return deps.NewMockWebAuthnInterface(t)
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusInternalServerError,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "can't get user: ")
+				assert.JSONEq(t, `"internal server error"`, string(body))
 			},
 		},
 		{
@@ -696,9 +696,9 @@ func TestPasskey_beginLogin(t *testing.T) {
 
 				return wa
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusInternalServerError,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "can't begin login: ")
+				assert.JSONEq(t, `"internal server error"`, string(body))
 			},
 		},
 		{
@@ -732,9 +732,9 @@ func TestPasskey_beginLogin(t *testing.T) {
 
 				return wa
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusInternalServerError,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "can't save session: ")
+				assert.JSONEq(t, `"internal server error"`, string(body))
 			},
 		},
 	}
@@ -887,7 +887,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 			},
 			wantStatus: http.StatusBadRequest,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "can't get session id: ")
+				assert.JSONEq(t, `"invalid request"`, string(body))
 			},
 		},
 		{
@@ -922,7 +922,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 			},
 			wantStatus: http.StatusBadRequest,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "can't get session data")
+				assert.JSONEq(t, `"invalid request"`, string(body))
 			},
 		},
 		{
@@ -961,9 +961,9 @@ func TestPasskey_finishLogin(t *testing.T) {
 			webAuthn: func() deps.WebAuthnInterface {
 				return deps.NewMockWebAuthnInterface(t)
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusInternalServerError,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "can't get user: ")
+				assert.JSONEq(t, `"internal server error"`, string(body))
 			},
 		},
 		{
@@ -1008,9 +1008,9 @@ func TestPasskey_finishLogin(t *testing.T) {
 
 				return wa
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusInternalServerError,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "can't finish login: ")
+				assert.JSONEq(t, `"internal server error"`, string(body))
 			},
 		},
 		{
@@ -1059,9 +1059,9 @@ func TestPasskey_finishLogin(t *testing.T) {
 
 				return wa
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusInternalServerError,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "can't update credential: ")
+				assert.JSONEq(t, `"internal server error"`, string(body))
 			},
 		},
 		{
@@ -1116,9 +1116,9 @@ func TestPasskey_finishLogin(t *testing.T) {
 
 				return wa
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusInternalServerError,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "can't save user session: ")
+				assert.JSONEq(t, `"internal server error"`, string(body))
 			},
 		},
 	}

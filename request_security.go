@@ -34,7 +34,7 @@ func sessionCookie(r *http.Request, name string) (*http.Cookie, error) {
 		return nil, http.ErrNoCookie
 	}
 	if len(cookies) != 1 {
-		return nil, fmt.Errorf("duplicate session cookie")
+		return nil, fmt.Errorf("%w: duplicate session cookie", errInvalidRequest)
 	}
 	return cookies[0], nil
 }

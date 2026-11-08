@@ -303,6 +303,13 @@ Successful logout returns 204, including when its cookie is already absent.
 Browser clients should POST logout and navigate after a successful response, as
 shown in the example. Browsers with unprefixed production cookies require a new login.
 
+Handler errors are JSON strings with fixed public messages. Invalid requests and
+recognized verification failures return 400; missing users/credentials return 404,
+registration conflicts 409, and session capacity exhaustion 503. Unexpected backend
+or unclassified verification failures return 500 with `"internal server error"`.
+Backend diagnostics and WebAuthn error details are never included in those responses.
+Internal logging is retained; storage adapters must redact secrets from their errors.
+
 Apply request admission/rate limiting in HTTP middleware before forwarding to
 the mux populated by `MountRoutes`. This rejects requests before WebAuthn
 generation or storage allocation, including requests without cookies. The policy

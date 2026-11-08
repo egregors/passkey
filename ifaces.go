@@ -28,6 +28,7 @@ type NewUser struct {
 // Implementations of Create must atomically persist the account and its initial credential,
 // preserving the exact UserID handle, and enforcing unique username and user ID.
 // Reads and Create return detached snapshots, including credential byte slices.
+// Errors may be logged; adapters must not include secrets or session tokens in them.
 type UserStore interface {
 	Create(u NewUser) (User, error)
 	// UpdateCredential atomically updates an existing credential's authentication state.

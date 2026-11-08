@@ -93,7 +93,7 @@ func TestFinishLoginServerExpiration(t *testing.T) {
 				wantCalls = 1
 			} else {
 				assert.Equal(t, http.StatusBadRequest, rec.Code)
-				assert.Contains(t, rec.Body.String(), "login session has expired")
+				assert.JSONEq(t, `"invalid request"`, rec.Body.String())
 			}
 			assertLoginCookieCleared(t, f.p, rec)
 			f.users.AssertNumberOfCalls(t, "Get", wantCalls)
@@ -104,7 +104,7 @@ func TestFinishLoginServerExpiration(t *testing.T) {
 
 			replay := f.finish(f.assertion)
 			assert.Equal(t, http.StatusBadRequest, replay.Code)
-			assert.Contains(t, replay.Body.String(), "can't get session data")
+			assert.JSONEq(t, `"invalid request"`, replay.Body.String())
 			assertLoginCookieCleared(t, f.p, replay)
 			assert.Equal(t, wantCalls, f.authSessions.count())
 		})

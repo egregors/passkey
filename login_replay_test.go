@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -50,7 +51,7 @@ func TestLoginConcurrentReplay(t *testing.T) {
 	// would let this identical signed response complete another login.
 	second := f.finish(f.assertion)
 	assert.Equal(t, http.StatusBadRequest, second.Code)
-	assert.Contains(t, second.Body.String(), "can't get session data")
+	assert.JSONEq(t, `"invalid request"`, second.Body.String())
 	assertLoginCookieCleared(t, f.p, second)
 	unblock()
 	select {
@@ -76,7 +77,7 @@ func TestLoginSequentialReplay(t *testing.T) {
 	assertLoginCookieCleared(t, f.p, first)
 	second := f.finish(f.assertion)
 	assert.Equal(t, http.StatusBadRequest, second.Code)
-	assert.Contains(t, second.Body.String(), "can't get session data")
+	assert.JSONEq(t, `"invalid request"`, second.Body.String())
 	assertLoginCookieCleared(t, f.p, second)
 	assert.Equal(t, 1, f.authSessions.count())
 }
@@ -86,12 +87,12 @@ func TestLoginInvalidSignatureConsumesChallenge(t *testing.T) {
 	f.users.On("Get", f.userID).Return(f.user, nil).Once()
 	first := f.finish(f.invalidAssertion)
 	assert.Equal(t, http.StatusBadRequest, first.Code)
-	assert.Contains(t, first.Body.String(), "can't finish login")
+	assert.JSONEq(t, `"invalid request"`, first.Body.String())
 	assertLoginCookieCleared(t, f.p, first)
 	// Even a valid signature cannot retry this ceremony after the failed attempt.
 	second := f.finish(f.assertion)
 	assert.Equal(t, http.StatusBadRequest, second.Code)
-	assert.Contains(t, second.Body.String(), "can't get session data")
+	assert.JSONEq(t, `"invalid request"`, second.Body.String())
 	assertLoginCookieCleared(t, f.p, second)
 	assert.Zero(t, f.authSessions.count())
 }
@@ -100,24 +101,26 @@ func TestLoginStorageFailureConsumesChallenge(t *testing.T) {
 	for _, stage := range []string{"load user", "update user", "create session"} {
 		t.Run(stage, func(t *testing.T) {
 			f := newLoginReplayFixture(t)
+			backendErr := errors.New("private backend diagnostic")
 			if stage == "load user" {
-				f.users.On("Get", f.userID).Return(nil, assert.AnError).Once()
+				f.users.On("Get", f.userID).Return(nil, backendErr).Once()
 			} else {
 				f.users.On("Get", f.userID).Return(f.user, nil).Once()
 				var updateErr error
 				if stage == "update user" {
-					updateErr = assert.AnError
+					updateErr = backendErr
 				} else {
-					f.authSessions.createErr = assert.AnError
+					f.authSessions.createErr = backendErr
 				}
 				f.users.On("UpdateCredential", f.userID, mock.AnythingOfType("webauthn.Credential")).Return(updateErr).Once()
 			}
 			first := f.finish(f.assertion)
-			assert.Equal(t, http.StatusBadRequest, first.Code)
+			assert.Equal(t, http.StatusInternalServerError, first.Code)
+			assert.JSONEq(t, `"internal server error"`, first.Body.String())
 			assertLoginCookieCleared(t, f.p, first)
 			second := f.finish(f.assertion)
 			assert.Equal(t, http.StatusBadRequest, second.Code)
-			assert.Contains(t, second.Body.String(), "can't get session data")
+			assert.JSONEq(t, `"invalid request"`, second.Body.String())
 			assertLoginCookieCleared(t, f.p, second)
 			assert.Zero(t, f.authSessions.count())
 		})
@@ -131,7 +134,7 @@ func TestLoginNilConsumedSession(t *testing.T) {
 	f.p.loginSessionStore = store
 	rec := f.finish(f.assertion)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "can't get session data")
+	assert.JSONEq(t, `"invalid request"`, rec.Body.String())
 	assertLoginCookieCleared(t, f.p, rec)
 	assert.Zero(t, f.authSessions.count())
 }
