@@ -334,6 +334,10 @@ It takes key for context and two callback functions that are called when the use
 You can use the context key to retrieve the authenticated userID from the request context
 with `passkey.UserIDFromCtx`.
 
+When `onFail` is nil, rejected authentication returns HTTP 401. A supplied failure
+callback controls the response instead. Rejection never invokes `onSuccess` or
+the protected handler; a nil `onSuccess` simply skips that callback.
+
 `passkey` contains a helper function:
 
 | Helper                       | Description                                                             |

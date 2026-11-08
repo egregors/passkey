@@ -11,7 +11,11 @@ import (
 type AuthUserIDKey string
 
 // Auth adds a valid user session's ID to the context, or calls onFail.
+// A nil onFail defaults to Unauthorized.
 func (p *Passkey) Auth(userIDKey AuthUserIDKey, onSuccess, onFail http.HandlerFunc) func(next http.Handler) http.Handler {
+	if onFail == nil {
+		onFail = Unauthorized
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			sid, err := sessionCookie(r, p.cookieSettings.userSessionName)

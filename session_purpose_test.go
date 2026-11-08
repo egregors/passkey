@@ -38,7 +38,7 @@ func TestAuthRejectsInvalidSessionRecords(t *testing.T) {
 			succeeded, reached := false, false
 			handler := p.Auth("user", func(http.ResponseWriter, *http.Request) {
 				succeeded = true
-			}, Unauthorized)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+			}, nil)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 				reached = true
 			}))
 			req := httptest.NewRequest(http.MethodGet, "/private", http.NoBody)
