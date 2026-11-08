@@ -6,43 +6,56 @@ import (
 	"encoding/base64"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/go-webauthn/webauthn/webauthn"
 
 	"github.com/egregors/passkey"
 )
 
-// -- User storage methods --
-
 type UserStore struct {
-	users map[string]passkey.User
+	users map[string]*User
 	mu    sync.RWMutex
 }
 
 func NewUserStore() *UserStore {
 	return &UserStore{
-		users: make(map[string]passkey.User),
+		users: make(map[string]*User),
 		mu:    sync.RWMutex{},
 	}
 }
 
-func (s *UserStore) Update(user passkey.User) error {
+func (s *UserStore) UpdateCredential(userID []byte, credential webauthn.Credential) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.users[user.WebAuthnName()] = user
-
-	return nil
+	for _, user := range s.users {
+		if !bytes.Equal(user.ID, userID) {
+			continue
+		}
+		for i := range user.creds {
+			stored := &user.creds[i]
+			if bytes.Equal(stored.ID, credential.ID) {
+				stored.Authenticator.CloneWarning = stored.Authenticator.CloneWarning || credential.Authenticator.CloneWarning
+				if credential.Authenticator.SignCount >= stored.Authenticator.SignCount {
+					stored.Authenticator.SignCount = credential.Authenticator.SignCount
+					stored.Flags = credential.Flags
+				}
+				return nil
+			}
+		}
+		return passkey.ErrCredentialNotFound
+	}
+	return passkey.ErrUserNotFound
 }
 
 func (s *UserStore) Get(userID []byte) (passkey.User, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	// TODO: full scan, optimize eventually
 	for _, u := range s.users {
 		if bytes.Equal(u.WebAuthnID(), userID) {
-			return u, nil
+			return u.snapshot(), nil
 		}
 	}
 
@@ -54,7 +67,7 @@ func (s *UserStore) GetByName(username string) (passkey.User, error) {
 	defer s.mu.RUnlock()
 
 	if u, ok := s.users[username]; ok {
-		return u, nil
+		return u.snapshot(), nil
 	}
 
 	return nil, passkey.ErrUserNotFound
@@ -67,47 +80,31 @@ func (s *UserStore) Create(user passkey.NewUser) (passkey.User, error) {
 	if _, ok := s.users[user.Username]; ok {
 		return nil, fmt.Errorf("%w: user %s already exists", passkey.ErrUserAlreadyExists, user.Username)
 	}
+	for _, existing := range s.users {
+		if bytes.Equal(existing.ID, user.UserID) {
+			return nil, passkey.ErrUserAlreadyExists
+		}
+	}
 
 	u := &User{
 		ID:    user.UserID,
 		Name:  user.Username,
 		creds: []webauthn.Credential{user.Credential},
 	}
-	s.users[user.Username] = u
-
+	s.users[user.Username] = u.snapshot()
 	return u, nil
 }
 
-func (s *UserStore) GetOrCreateUser(userName string) passkey.User {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if user, ok := s.users[userName]; ok {
-		return user
-	}
-
-	u := User{
-		ID:          []byte(userName),
-		DisplayName: userName,
-		Name:        userName,
-	}
-
-	s.users[userName] = &u
-
-	return &u
-}
-
-// -- Session storage methods --
-
 type SessionStore[T any] struct {
 	sessions map[string]T
-	mu       sync.RWMutex
+	mu       sync.Mutex
 }
+
+const sessionStoreCapacity = 1024
 
 func NewSessionStore[T any]() *SessionStore[T] {
 	return &SessionStore[T]{
 		sessions: make(map[string]T),
-		mu:       sync.RWMutex{},
 	}
 }
 
@@ -125,23 +122,37 @@ func (s *SessionStore[T]) Create(data T) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	sID, err := genSessionID()
-	if err != nil {
-		return "", err
+	now := time.Now()
+	for token, session := range s.sessions {
+		if !now.Before(sessionExpiration(session)) {
+			delete(s.sessions, token)
+		}
 	}
-
-	// FIXME: there could be collisions, but in purpose of example we don't care
-	s.sessions[sID] = data
-
-	return sID, nil
+	if !now.Before(sessionExpiration(data)) {
+		return "", fmt.Errorf("session has expired")
+	}
+	if len(s.sessions) >= sessionStoreCapacity {
+		return "", passkey.ErrSessionStoreFull
+	}
+	for {
+		token, err := genSessionID()
+		if err != nil {
+			return "", err
+		}
+		if _, exists := s.sessions[token]; !exists {
+			s.sessions[token] = data
+			return token, nil
+		}
+	}
 }
 
 func (s *SessionStore[T]) Get(token string) (*T, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	val, ok := s.sessions[token]
-	if !ok {
+	if !ok || !time.Now().Before(sessionExpiration(val)) {
+		delete(s.sessions, token)
 		return nil, false
 	}
 	return &val, true
@@ -152,11 +163,10 @@ func (s *SessionStore[T]) Consume(token string) (*T, bool) {
 	defer s.mu.Unlock()
 
 	val, ok := s.sessions[token]
-	if !ok {
+	delete(s.sessions, token)
+	if !ok || !time.Now().Before(sessionExpiration(val)) {
 		return nil, false
 	}
-	delete(s.sessions, token)
-
 	return &val, true
 }
 
@@ -165,4 +175,17 @@ func (s *SessionStore[T]) Delete(token string) {
 	defer s.mu.Unlock()
 
 	delete(s.sessions, token)
+}
+
+func sessionExpiration(data any) time.Time {
+	switch v := data.(type) {
+	case webauthn.SessionData:
+		return v.Expires
+	case passkey.RegistrationSessionData:
+		return v.Expires
+	case passkey.UserSessionData:
+		return v.Expires
+	default:
+		return time.Time{}
+	}
 }

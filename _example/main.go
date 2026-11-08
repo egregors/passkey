@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"embed"
+	"errors"
 	"fmt"
 	"html/template"
 	"io/fs"
@@ -21,76 +23,64 @@ var webFiles embed.FS
 
 const userKey passkey.AuthUserIDKey = "pkUser"
 
-var userStore = NewUserStore()
-
 func main() {
-	proto := getEnv("PROTO", "http")             // "http" | "https"
-	sub := getEnv("SUB", "")                     // "" | "login."
-	host := getEnv("HOST", "localhost")          // "localhost" | "example.com"
-	originPort := getEnv("ORIGIN_PORT", ":8080") // ":8080" | "" if you use reverse proxy it should be the most "external" port
-	serverPort := getEnv("SERVER_PORT", ":8080") // ":8080"
+	proto := getEnv("PROTO", "http")
+	sub := getEnv("SUB", "")
+	host := getEnv("HOST", "localhost")
+	originPort := getEnv("ORIGIN_PORT", ":8080") // Public port, including ':'; empty for the scheme's default port.
+	serverPort := getEnv("SERVER_PORT", ":8080")
 
 	origin := fmt.Sprintf("%s://%s%s%s", proto, sub, host, originPort)
 
 	l := log.NewLogger()
 	l.Enable(log.DBG)
 
+	opts := []passkey.Option{
+		passkey.WithLogger(l),
+		passkey.WithUserSessionMaxAge(60 * time.Minute),
+		passkey.WithSessionCookieNamePrefix("passkeyDemo"),
+	}
+	if proto == "http" {
+		opts = append(opts, passkey.WithInsecureCookie())
+	}
+	users := NewUserStore()
 	pkey, err := passkey.New(
 		passkey.Config{
 			WebauthnConfig: &webauthn.Config{
-				RPDisplayName: "Passkey Example", // Display Name for your site
-				RPID:          host,              // Generally the FQDN for your site
-				RPOrigins:     []string{origin},  // The origin URLs allowed for WebAuthn
+				RPDisplayName: "Passkey Example",
+				RPID:          host,
+				RPOrigins:     []string{origin},
 			},
-			UserStore:                NewUserStore(),
+			UserStore:                users,
 			LoginSessionStore:        NewSessionStore[webauthn.SessionData](),
 			RegistrationSessionStore: NewSessionStore[passkey.RegistrationSessionData](),
 			UserSessionStore:         NewSessionStore[passkey.UserSessionData](),
 		},
-		passkey.WithLogger(l),
-		passkey.WithUserSessionMaxAge(60*time.Minute),
-		passkey.WithSessionCookieNamePrefix("passkeyDemo"),
-		passkey.WithInsecureCookie(), // In order to support Safari on localhost. Do not use in production.
+		opts...,
 	)
 	if err != nil {
 		panic(err)
 	}
 
-	mux := http.NewServeMux()
-
-	// mount the passkey routes
-	pkey.MountRoutes(mux, "/api/")
-
-	// public routes
-	web, _ := fs.Sub(webFiles, "web")
-	mux.Handle("/", http.FileServer(http.FS(web)))
-	mux.HandleFunc("/logout", func(w http.ResponseWriter, r *http.Request) {
-		pkey.Logout(w, r)
-		http.Redirect(w, r, "/", http.StatusSeeOther)
-	})
-
-	// private routes
-	privateMux := http.NewServeMux()
-	privateMux.HandleFunc("/", privateHandler())
-
-	// wrap the privateMux with the Auth middleware
-	withAuth := pkey.Auth(
-		userKey,
-		nil,
-		passkey.RedirectUnauthorized(url.URL{Path: "/"}),
-	)
-	mux.Handle("/private", withAuth(privateMux))
-
-	// start the server
 	l.Infof("Listening on %s\n", origin)
-	if err := http.ListenAndServe(serverPort, mux); err != nil { //nolint:gosec // example server
+	if err := http.ListenAndServe(serverPort, exampleMux(pkey, users)); err != nil { //nolint:gosec // example server
 		panic(err)
 	}
 }
 
-func privateHandler() func(w http.ResponseWriter, r *http.Request) {
+func exampleMux(pkey *passkey.Passkey, users passkey.UserStore) *http.ServeMux {
+	mux := http.NewServeMux()
+	pkey.MountRoutes(mux, "/api/")
+	web, _ := fs.Sub(webFiles, "web")
+	mux.Handle("/", http.FileServer(http.FS(web)))
+	mux.HandleFunc("/logout", pkey.Logout)
+	mux.Handle("/private", pkey.Auth(userKey, nil, passkey.RedirectUnauthorized(url.URL{Path: "/"}))(privateHandler(users)))
+	return mux
+}
+
+func privateHandler(users passkey.UserStore) http.HandlerFunc {
+	tmpl := template.Must(template.ParseFS(webFiles, "web/private.html"))
 	return func(w http.ResponseWriter, r *http.Request) {
-		// get the userID from the request context
 		userID, ok := passkey.UserIDFromCtx(r.Context(), userKey)
 		if !ok {
 			http.Error(w, "No user found", http.StatusUnauthorized)
@@ -98,7 +88,15 @@ func privateHandler() func(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		user, _ := userStore.Get(userID)
+		user, err := users.Get(userID)
+		if errors.Is(err, passkey.ErrUserNotFound) {
+			http.Error(w, "No user found", http.StatusUnauthorized)
+			return
+		}
+		if err != nil || user == nil {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
 
 		pageData := struct {
 			UserID string
@@ -106,18 +104,12 @@ func privateHandler() func(w http.ResponseWriter, r *http.Request) {
 			UserID: user.WebAuthnName(),
 		}
 
-		tmpl, err := template.ParseFS(webFiles, "web/private.html")
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-
+		var page bytes.Buffer
+		if err := tmpl.Execute(&page, pageData); err != nil {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
-
-		if err := tmpl.Execute(w, pageData); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-
-			return
-		}
+		_, _ = w.Write(page.Bytes())
 	}
 }
 

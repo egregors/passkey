@@ -23,10 +23,11 @@ install-lint: ## Install the pinned golangci-lint version
 .PHONY: test
 test: ## Run unittests
 	@go test -short ${PKG_LIST} -count=1
+	@go -C _example test -short ./... -count=1
 
 .PHONY: run
 run:  ## Run example project
-	@go run _example/*.go
+	@go -C _example run .
 
 .PHONY: up
 up:  ## Run example project with local SSL (self-signed certificate)

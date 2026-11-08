@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -43,7 +44,7 @@ func TestBeginLoginServerExpiration(t *testing.T) {
 			require.NoError(t, err)
 			before := time.Now()
 			rec := httptest.NewRecorder()
-			p.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, pathLoginBegin, body("username", "expiry-user")))
+			p.mux.ServeHTTP(rec, withAllowedOrigin(httptest.NewRequest(http.MethodPost, pathLoginBegin, body("username", "expiry-user"))))
 			after := time.Now()
 			require.Equal(t, http.StatusOK, rec.Code)
 			cookies := rec.Result().Cookies()
@@ -84,7 +85,7 @@ func TestFinishLoginServerExpiration(t *testing.T) {
 			// Optional expectations let this test demonstrate the original vulnerability,
 			// while call counts below enforce rejection before any user access.
 			f.users.On("Get", f.userID).Return(f.user, nil).Maybe()
-			f.users.On("Update", f.user).Return(nil).Maybe()
+			f.users.On("UpdateCredential", f.userID, mock.AnythingOfType("webauthn.Credential")).Return(nil).Maybe()
 			rec := f.finish(f.assertion) // Sends the saved cookie manually, independent of browser expiry.
 			wantCalls := 0
 			if tt.wantValid {
@@ -92,19 +93,18 @@ func TestFinishLoginServerExpiration(t *testing.T) {
 				wantCalls = 1
 			} else {
 				assert.Equal(t, http.StatusBadRequest, rec.Code)
-				assert.Contains(t, rec.Body.String(), "login session has expired")
+				assert.JSONEq(t, `"invalid request"`, rec.Body.String())
 			}
 			assertLoginCookieCleared(t, f.p, rec)
 			f.users.AssertNumberOfCalls(t, "Get", wantCalls)
-			f.users.AssertNumberOfCalls(t, "Update", wantCalls)
-			f.user.AssertNumberOfCalls(t, "PutCredential", wantCalls)
+			f.users.AssertNumberOfCalls(t, "UpdateCredential", wantCalls)
 			assert.Equal(t, wantCalls, f.authSessions.count())
 			_, ok = f.p.loginSessionStore.Get(f.token)
 			assert.False(t, ok, "expired and legacy sessions must also be consumed")
 
 			replay := f.finish(f.assertion)
 			assert.Equal(t, http.StatusBadRequest, replay.Code)
-			assert.Contains(t, replay.Body.String(), "can't get session data")
+			assert.JSONEq(t, `"invalid request"`, replay.Body.String())
 			assertLoginCookieCleared(t, f.p, replay)
 			assert.Equal(t, wantCalls, f.authSessions.count())
 		})

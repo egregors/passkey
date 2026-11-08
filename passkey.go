@@ -3,6 +3,7 @@ package passkey
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/egregors/passkey/deps"
@@ -24,6 +25,7 @@ const (
 	defaultLoginSessionMaxAge        = 5 * time.Minute
 	defaultRegistrationSessionMaxAge = 5 * time.Minute
 	defaultUserSessionMaxAge         = 60 * time.Minute
+	userSessionPurpose               = "passkey:user-session:v1"
 )
 
 type Config struct {
@@ -41,6 +43,7 @@ type RegistrationSessionData struct {
 }
 
 type UserSessionData struct {
+	Purpose string
 	UserID  []byte
 	Expires time.Time
 }
@@ -68,8 +71,7 @@ type Passkey struct {
 	registrationSessionStore SessionStore[RegistrationSessionData]
 	userSessionStore         SessionStore[UserSessionData]
 
-	mux       *http.ServeMux
-	staticMux *http.ServeMux
+	mux *http.ServeMux
 
 	log            Logger
 	cookieSettings CookieSettings
@@ -85,8 +87,7 @@ func New(cfg Config, opts ...Option) (*Passkey, error) {
 		registrationSessionStore: cfg.RegistrationSessionStore,
 		userSessionStore:         cfg.UserSessionStore,
 
-		mux:       http.NewServeMux(),
-		staticMux: http.NewServeMux(),
+		mux: http.NewServeMux(),
 	}
 
 	p.setupCookieSettings()
@@ -107,6 +108,16 @@ func New(cfg Config, opts ...Option) (*Passkey, error) {
 }
 
 func (p *Passkey) must() error {
+	for _, name := range []string{p.cookieSettings.loginSessionName, p.cookieSettings.registrationSessionName, p.cookieSettings.userSessionName} {
+		//nolint:gosec // Name validation only; this cookie is never sent.
+		if err := (&http.Cookie{Name: name}).Valid(); err != nil {
+			return fmt.Errorf("invalid cookie name: %w", err)
+		}
+		lower := strings.ToLower(name)
+		if !p.cookieSettings.Secure && (strings.HasPrefix(lower, "__host-") || strings.HasPrefix(lower, "__secure-")) {
+			return fmt.Errorf("reserved cookie prefix requires secure cookies")
+		}
+	}
 	return mustNotNil(map[string]any{
 		"userStore":                p.userStore,
 		"loginSessionStore":        p.loginSessionStore,
@@ -129,6 +140,11 @@ func (p *Passkey) setupOptions(opts []Option) {
 	setupDefaultOptions(p)
 	for _, opt := range opts {
 		opt(p)
+	}
+	if p.cookieSettings.Secure {
+		p.cookieSettings.loginSessionName = "__Host-" + p.cookieSettings.loginSessionName
+		p.cookieSettings.registrationSessionName = "__Host-" + p.cookieSettings.registrationSessionName
+		p.cookieSettings.userSessionName = "__Host-" + p.cookieSettings.userSessionName
 	}
 }
 
@@ -168,15 +184,13 @@ func (p *Passkey) setupWebAuthn() error {
 }
 
 func (p *Passkey) setupRoutes() {
-	p.mux.HandleFunc(pathRegisterBegin, limitRequestBody(p.beginRegistration))
-	p.mux.HandleFunc(pathRegisterFinish, limitRequestBody(p.finishRegistration))
-	p.mux.HandleFunc(pathLoginBegin, limitRequestBody(p.beginLogin))
-	p.mux.HandleFunc(pathLoginFinish, limitRequestBody(p.finishLogin))
-
-	p.staticMux.Handle("/", http.FileServer(http.Dir("./static")))
+	p.mux.HandleFunc(pathRegisterBegin, p.mutationHandler(limitRequestBody(p.beginRegistration)))
+	p.mux.HandleFunc(pathRegisterFinish, p.mutationHandler(limitRequestBody(p.finishRegistration)))
+	p.mux.HandleFunc(pathLoginBegin, p.mutationHandler(limitRequestBody(p.beginLogin)))
+	p.mux.HandleFunc(pathLoginFinish, p.mutationHandler(limitRequestBody(p.finishLogin)))
 }
 
-// MountRoutes mounts passkey routes to mux
+// MountRoutes mounts POST ceremony routes under path, which must end with a slash.
 func (p *Passkey) MountRoutes(mux *http.ServeMux, path string) {
 	mux.Handle(path, http.StripPrefix(path[:len(path)-1], p.mux))
 }

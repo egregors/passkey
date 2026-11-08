@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -36,7 +37,7 @@ func TestLoginConcurrentReplay(t *testing.T) {
 			<-release
 		}
 	}).Return(f.user, nil)
-	f.users.On("Update", f.user).Return(nil)
+	f.users.On("UpdateCredential", f.userID, mock.AnythingOfType("webauthn.Credential")).Return(nil)
 
 	first := make(chan *httptest.ResponseRecorder, 1)
 	go func() { first <- f.finish(f.assertion) }()
@@ -50,7 +51,7 @@ func TestLoginConcurrentReplay(t *testing.T) {
 	// would let this identical signed response complete another login.
 	second := f.finish(f.assertion)
 	assert.Equal(t, http.StatusBadRequest, second.Code)
-	assert.Contains(t, second.Body.String(), "can't get session data")
+	assert.JSONEq(t, `"invalid request"`, second.Body.String())
 	assertLoginCookieCleared(t, f.p, second)
 	unblock()
 	select {
@@ -62,20 +63,21 @@ func TestLoginConcurrentReplay(t *testing.T) {
 	}
 	assert.Equal(t, 1, f.authSessions.count())
 	f.users.AssertNumberOfCalls(t, "Get", 1)
-	f.users.AssertNumberOfCalls(t, "Update", 1)
-	f.user.AssertNumberOfCalls(t, "PutCredential", 1)
+	f.users.AssertNumberOfCalls(t, "UpdateCredential", 1)
 }
 
 func TestLoginSequentialReplay(t *testing.T) {
 	f := newLoginReplayFixture(t)
 	f.users.On("Get", f.userID).Return(f.user, nil).Once()
-	f.users.On("Update", f.user).Return(nil).Once()
+	f.users.On("UpdateCredential", f.userID, mock.MatchedBy(func(c webauthn.Credential) bool {
+		return bytes.Equal(c.ID, []byte("replay-credential")) && c.Flags.UserPresent && c.Flags.UserVerified
+	})).Return(nil).Once()
 	first := f.finish(f.assertion)
 	assert.Equal(t, http.StatusOK, first.Code)
 	assertLoginCookieCleared(t, f.p, first)
 	second := f.finish(f.assertion)
 	assert.Equal(t, http.StatusBadRequest, second.Code)
-	assert.Contains(t, second.Body.String(), "can't get session data")
+	assert.JSONEq(t, `"invalid request"`, second.Body.String())
 	assertLoginCookieCleared(t, f.p, second)
 	assert.Equal(t, 1, f.authSessions.count())
 }
@@ -85,12 +87,12 @@ func TestLoginInvalidSignatureConsumesChallenge(t *testing.T) {
 	f.users.On("Get", f.userID).Return(f.user, nil).Once()
 	first := f.finish(f.invalidAssertion)
 	assert.Equal(t, http.StatusBadRequest, first.Code)
-	assert.Contains(t, first.Body.String(), "can't finish login")
+	assert.JSONEq(t, `"invalid request"`, first.Body.String())
 	assertLoginCookieCleared(t, f.p, first)
 	// Even a valid signature cannot retry this ceremony after the failed attempt.
 	second := f.finish(f.assertion)
 	assert.Equal(t, http.StatusBadRequest, second.Code)
-	assert.Contains(t, second.Body.String(), "can't get session data")
+	assert.JSONEq(t, `"invalid request"`, second.Body.String())
 	assertLoginCookieCleared(t, f.p, second)
 	assert.Zero(t, f.authSessions.count())
 }
@@ -99,24 +101,26 @@ func TestLoginStorageFailureConsumesChallenge(t *testing.T) {
 	for _, stage := range []string{"load user", "update user", "create session"} {
 		t.Run(stage, func(t *testing.T) {
 			f := newLoginReplayFixture(t)
+			backendErr := errors.New("private backend diagnostic")
 			if stage == "load user" {
-				f.users.On("Get", f.userID).Return(nil, assert.AnError).Once()
+				f.users.On("Get", f.userID).Return(nil, backendErr).Once()
 			} else {
 				f.users.On("Get", f.userID).Return(f.user, nil).Once()
 				var updateErr error
 				if stage == "update user" {
-					updateErr = assert.AnError
+					updateErr = backendErr
 				} else {
-					f.authSessions.createErr = assert.AnError
+					f.authSessions.createErr = backendErr
 				}
-				f.users.On("Update", f.user).Return(updateErr).Once()
+				f.users.On("UpdateCredential", f.userID, mock.AnythingOfType("webauthn.Credential")).Return(updateErr).Once()
 			}
 			first := f.finish(f.assertion)
-			assert.Equal(t, http.StatusBadRequest, first.Code)
+			assert.Equal(t, http.StatusInternalServerError, first.Code)
+			assert.JSONEq(t, `"internal server error"`, first.Body.String())
 			assertLoginCookieCleared(t, f.p, first)
 			second := f.finish(f.assertion)
 			assert.Equal(t, http.StatusBadRequest, second.Code)
-			assert.Contains(t, second.Body.String(), "can't get session data")
+			assert.JSONEq(t, `"invalid request"`, second.Body.String())
 			assertLoginCookieCleared(t, f.p, second)
 			assert.Zero(t, f.authSessions.count())
 		})
@@ -130,7 +134,7 @@ func TestLoginNilConsumedSession(t *testing.T) {
 	f.p.loginSessionStore = store
 	rec := f.finish(f.assertion)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "can't get session data")
+	assert.JSONEq(t, `"invalid request"`, rec.Body.String())
 	assertLoginCookieCleared(t, f.p, rec)
 	assert.Zero(t, f.authSessions.count())
 }
@@ -158,7 +162,6 @@ func newLoginReplayFixture(t *testing.T) *loginReplayFixture {
 	user.On("WebAuthnID").Return(uid)
 	user.On("WebAuthnName").Return("replay-user").Maybe()
 	user.On("WebAuthnCredentials").Return([]webauthn.Credential{{ID: cid, PublicKey: key}})
-	user.On("PutCredential", mock.Anything).Return().Maybe()
 	users := NewMockUserStore(t)
 	loginSessions := &loginReplayStore[webauthn.SessionData]{data: make(map[string]webauthn.SessionData)}
 	authSessions := &loginReplayStore[UserSessionData]{data: make(map[string]UserSessionData)}
@@ -170,7 +173,7 @@ func newLoginReplayFixture(t *testing.T) *loginReplayFixture {
 	require.NoError(t, err)
 	users.On("GetByName", "replay-user").Return(user, nil).Once()
 	begin := httptest.NewRecorder()
-	p.mux.ServeHTTP(begin, httptest.NewRequest(http.MethodPost, pathLoginBegin, body("username", "replay-user")))
+	p.mux.ServeHTTP(begin, withAllowedOrigin(httptest.NewRequest(http.MethodPost, pathLoginBegin, body("username", "replay-user"))))
 	require.Equal(t, http.StatusOK, begin.Code)
 	cookies := begin.Result().Cookies()
 	require.Len(t, cookies, 1)
@@ -201,6 +204,7 @@ func newLoginReplayFixture(t *testing.T) *loginReplayFixture {
 
 func (f *loginReplayFixture) finish(payload []byte) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodPost, pathLoginFinish, bytes.NewReader(payload))
+	req.Header.Set("Origin", "https://example.com")
 	req.AddCookie(&http.Cookie{Name: f.p.cookieSettings.loginSessionName, Value: f.token})
 	rec := httptest.NewRecorder()
 	f.p.mux.ServeHTTP(rec, req)

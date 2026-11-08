@@ -129,7 +129,7 @@ func TestPasskey_beginRegistration(t *testing.T) {
 			checkCookie: func(cookies []*http.Cookie) {
 				assert.Len(t, cookies, 1)
 				c := cookies[0]
-				assert.Equal(t, camelCaseConcat(defaultSessionNamePrefix, defaultRegistrationSessionName), c.Name)
+				assert.Equal(t, "__Host-"+camelCaseConcat(defaultSessionNamePrefix, defaultRegistrationSessionName), c.Name)
 				assert.Equal(t, "session-token-1234", c.Value)
 				assert.Equal(t, "/", c.Path)
 				assert.Equal(t, int(defaultRegistrationSessionMaxAge.Seconds()), c.MaxAge)
@@ -153,7 +153,7 @@ func TestPasskey_beginRegistration(t *testing.T) {
 			},
 			wantStatus: http.StatusBadRequest,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "can't get username: ")
+				assert.JSONEq(t, `"no username provided"`, string(body))
 			},
 		},
 		{
@@ -176,9 +176,9 @@ func TestPasskey_beginRegistration(t *testing.T) {
 			webAuthn: func() deps.WebAuthnInterface {
 				return deps.NewMockWebAuthnInterface(t)
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusConflict,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "user already exists")
+				assert.JSONEq(t, `"user already exists"`, string(body))
 			},
 		},
 		{
@@ -206,9 +206,9 @@ func TestPasskey_beginRegistration(t *testing.T) {
 
 				return wa
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusInternalServerError,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "can't begin registration: ")
+				assert.JSONEq(t, `"internal server error"`, string(body))
 			},
 		},
 		{
@@ -242,9 +242,9 @@ func TestPasskey_beginRegistration(t *testing.T) {
 
 				return wa
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusInternalServerError,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "can't save session: ")
+				assert.JSONEq(t, `"internal server error"`, string(body))
 			},
 		},
 	}
@@ -301,7 +301,7 @@ func TestPasskey_finishRegistration(t *testing.T) {
 			r: func() *http.Request {
 				req := httptest.NewRequest(http.MethodPost, pathRegisterFinish, http.NoBody)
 				req.AddCookie(&http.Cookie{
-					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultRegistrationSessionName),
+					Name:  "__Host-" + camelCaseConcat(defaultSessionNamePrefix, defaultRegistrationSessionName),
 					Value: "session-token-1234",
 				})
 
@@ -347,7 +347,7 @@ func TestPasskey_finishRegistration(t *testing.T) {
 			checkCookie: func(cookies []*http.Cookie) {
 				require.Len(t, cookies, 1)
 				c := cookies[0]
-				assert.Equal(t, camelCaseConcat(defaultSessionNamePrefix, defaultRegistrationSessionName), c.Name)
+				assert.Equal(t, "__Host-"+camelCaseConcat(defaultSessionNamePrefix, defaultRegistrationSessionName), c.Name)
 				assert.Empty(t, c.Value)
 				assert.Equal(t, -1, c.MaxAge)
 			},
@@ -370,7 +370,7 @@ func TestPasskey_finishRegistration(t *testing.T) {
 			},
 			wantStatus: http.StatusBadRequest,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "can't get session id: ")
+				assert.JSONEq(t, `"invalid request"`, string(body))
 			},
 		},
 		{
@@ -379,7 +379,7 @@ func TestPasskey_finishRegistration(t *testing.T) {
 			r: func() *http.Request {
 				req := httptest.NewRequest(http.MethodPost, pathRegisterFinish, http.NoBody)
 				req.AddCookie(&http.Cookie{
-					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultRegistrationSessionName),
+					Name:  "__Host-" + camelCaseConcat(defaultSessionNamePrefix, defaultRegistrationSessionName),
 					Value: "session-token-1234",
 				})
 
@@ -402,7 +402,7 @@ func TestPasskey_finishRegistration(t *testing.T) {
 			},
 			wantStatus: http.StatusBadRequest,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "can't get session data")
+				assert.JSONEq(t, `"invalid request"`, string(body))
 			},
 		},
 		{
@@ -411,7 +411,7 @@ func TestPasskey_finishRegistration(t *testing.T) {
 			r: func() *http.Request {
 				req := httptest.NewRequest(http.MethodPost, pathRegisterFinish, http.NoBody)
 				req.AddCookie(&http.Cookie{
-					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultRegistrationSessionName),
+					Name:  "__Host-" + camelCaseConcat(defaultSessionNamePrefix, defaultRegistrationSessionName),
 					Value: "session-token-1234",
 				})
 
@@ -438,7 +438,7 @@ func TestPasskey_finishRegistration(t *testing.T) {
 			},
 			wantStatus: http.StatusBadRequest,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "registration session has expired")
+				assert.JSONEq(t, `"invalid request"`, string(body))
 			},
 		},
 		{
@@ -447,7 +447,7 @@ func TestPasskey_finishRegistration(t *testing.T) {
 			r: func() *http.Request {
 				req := httptest.NewRequest(http.MethodPost, pathRegisterFinish, http.NoBody)
 				req.AddCookie(&http.Cookie{
-					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultRegistrationSessionName),
+					Name:  "__Host-" + camelCaseConcat(defaultSessionNamePrefix, defaultRegistrationSessionName),
 					Value: "session-token-1234",
 				})
 
@@ -478,9 +478,9 @@ func TestPasskey_finishRegistration(t *testing.T) {
 
 				return wa
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusInternalServerError,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "can't finish registration: ")
+				assert.JSONEq(t, `"internal server error"`, string(body))
 			},
 		},
 		{
@@ -489,7 +489,7 @@ func TestPasskey_finishRegistration(t *testing.T) {
 			r: func() *http.Request {
 				req := httptest.NewRequest(http.MethodPost, pathRegisterFinish, http.NoBody)
 				req.AddCookie(&http.Cookie{
-					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultRegistrationSessionName),
+					Name:  "__Host-" + camelCaseConcat(defaultSessionNamePrefix, defaultRegistrationSessionName),
 					Value: "session-token-1234",
 				})
 
@@ -526,9 +526,9 @@ func TestPasskey_finishRegistration(t *testing.T) {
 
 				return wa
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusInternalServerError,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "can't create user: ")
+				assert.JSONEq(t, `"internal server error"`, string(body))
 			},
 		},
 	}
@@ -620,7 +620,7 @@ func TestPasskey_beginLogin(t *testing.T) {
 			checkCookie: func(cookies []*http.Cookie) {
 				assert.Len(t, cookies, 1)
 				c := cookies[0]
-				assert.Equal(t, camelCaseConcat(defaultSessionNamePrefix, defaultLoginSessionName), c.Name)
+				assert.Equal(t, "__Host-"+camelCaseConcat(defaultSessionNamePrefix, defaultLoginSessionName), c.Name)
 				assert.Equal(t, "session-token-1234", c.Value)
 				assert.Equal(t, "/", c.Path)
 				assert.Equal(t, int(defaultLoginSessionMaxAge.Seconds()), c.MaxAge)
@@ -644,7 +644,7 @@ func TestPasskey_beginLogin(t *testing.T) {
 			},
 			wantStatus: http.StatusBadRequest,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "can't get username: ")
+				assert.JSONEq(t, `"no username provided"`, string(body))
 			},
 		},
 		{
@@ -666,9 +666,9 @@ func TestPasskey_beginLogin(t *testing.T) {
 			webAuthn: func() deps.WebAuthnInterface {
 				return deps.NewMockWebAuthnInterface(t)
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusInternalServerError,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "can't get user: ")
+				assert.JSONEq(t, `"internal server error"`, string(body))
 			},
 		},
 		{
@@ -696,9 +696,9 @@ func TestPasskey_beginLogin(t *testing.T) {
 
 				return wa
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusInternalServerError,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "can't begin login: ")
+				assert.JSONEq(t, `"internal server error"`, string(body))
 			},
 		},
 		{
@@ -732,9 +732,9 @@ func TestPasskey_beginLogin(t *testing.T) {
 
 				return wa
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusInternalServerError,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "can't save session: ")
+				assert.JSONEq(t, `"internal server error"`, string(body))
 			},
 		},
 	}
@@ -795,8 +795,6 @@ func TestPasskey_deleteSessionCookie(t *testing.T) {
 func TestPasskey_finishLogin(t *testing.T) {
 	user := NewMockUser(t)
 	user.EXPECT().
-		PutCredential(mock.AnythingOfType("webauthn.Credential"))
-	user.EXPECT().
 		WebAuthnName().
 		Return("root@example.com")
 
@@ -817,7 +815,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 			r: func() *http.Request {
 				req := httptest.NewRequest(http.MethodPost, pathLoginFinish, http.NoBody)
 				req.AddCookie(&http.Cookie{
-					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultLoginSessionName),
+					Name:  "__Host-" + camelCaseConcat(defaultSessionNamePrefix, defaultLoginSessionName),
 					Value: "session-token-1234",
 				})
 
@@ -830,7 +828,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 					Times(1).
 					Return(user, nil)
 				uStore.EXPECT().
-					Update(user).
+					UpdateCredential([]byte("1234-5678-9012-3456"), mock.AnythingOfType("webauthn.Credential")).
 					Times(1).
 					Return(nil)
 
@@ -889,7 +887,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 			},
 			wantStatus: http.StatusBadRequest,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "can't get session id: ")
+				assert.JSONEq(t, `"invalid request"`, string(body))
 			},
 		},
 		{
@@ -898,7 +896,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 			r: func() *http.Request {
 				req := httptest.NewRequest(http.MethodPost, pathLoginFinish, http.NoBody)
 				req.AddCookie(&http.Cookie{
-					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultLoginSessionName),
+					Name:  "__Host-" + camelCaseConcat(defaultSessionNamePrefix, defaultLoginSessionName),
 					Value: "session-token-1234",
 				})
 
@@ -924,7 +922,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 			},
 			wantStatus: http.StatusBadRequest,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "can't get session data")
+				assert.JSONEq(t, `"invalid request"`, string(body))
 			},
 		},
 		{
@@ -933,7 +931,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 			r: func() *http.Request {
 				req := httptest.NewRequest(http.MethodPost, pathLoginFinish, http.NoBody)
 				req.AddCookie(&http.Cookie{
-					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultLoginSessionName),
+					Name:  "__Host-" + camelCaseConcat(defaultSessionNamePrefix, defaultLoginSessionName),
 					Value: "session-token-1234",
 				})
 
@@ -963,9 +961,9 @@ func TestPasskey_finishLogin(t *testing.T) {
 			webAuthn: func() deps.WebAuthnInterface {
 				return deps.NewMockWebAuthnInterface(t)
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusInternalServerError,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "can't get user: ")
+				assert.JSONEq(t, `"internal server error"`, string(body))
 			},
 		},
 		{
@@ -974,7 +972,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 			r: func() *http.Request {
 				req := httptest.NewRequest(http.MethodPost, pathLoginFinish, http.NoBody)
 				req.AddCookie(&http.Cookie{
-					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultLoginSessionName),
+					Name:  "__Host-" + camelCaseConcat(defaultSessionNamePrefix, defaultLoginSessionName),
 					Value: "session-token-1234",
 				})
 
@@ -1010,18 +1008,18 @@ func TestPasskey_finishLogin(t *testing.T) {
 
 				return wa
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusInternalServerError,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "can't finish login: ")
+				assert.JSONEq(t, `"internal server error"`, string(body))
 			},
 		},
 		{
-			name: "err: can't save user after putting credential",
+			name: "err: credential update failed",
 			w:    httptest.NewRecorder(),
 			r: func() *http.Request {
 				req := httptest.NewRequest(http.MethodPost, pathLoginFinish, http.NoBody)
 				req.AddCookie(&http.Cookie{
-					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultLoginSessionName),
+					Name:  "__Host-" + camelCaseConcat(defaultSessionNamePrefix, defaultLoginSessionName),
 					Value: "session-token-1234",
 				})
 
@@ -1034,7 +1032,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 					Times(1).
 					Return(user, nil)
 				uStore.EXPECT().
-					Update(user).
+					UpdateCredential([]byte("1234-5678-9012-3456"), mock.AnythingOfType("webauthn.Credential")).
 					Times(1).
 					Return(assert.AnError)
 
@@ -1061,9 +1059,9 @@ func TestPasskey_finishLogin(t *testing.T) {
 
 				return wa
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusInternalServerError,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "can't save user: ")
+				assert.JSONEq(t, `"internal server error"`, string(body))
 			},
 		},
 		{
@@ -1072,7 +1070,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 			r: func() *http.Request {
 				req := httptest.NewRequest(http.MethodPost, pathLoginFinish, http.NoBody)
 				req.AddCookie(&http.Cookie{
-					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultLoginSessionName),
+					Name:  "__Host-" + camelCaseConcat(defaultSessionNamePrefix, defaultLoginSessionName),
 					Value: "session-token-1234",
 				})
 
@@ -1085,7 +1083,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 					Times(1).
 					Return(user, nil)
 				uStore.EXPECT().
-					Update(user).
+					UpdateCredential([]byte("1234-5678-9012-3456"), mock.AnythingOfType("webauthn.Credential")).
 					Times(1).
 					Return(nil)
 
@@ -1118,9 +1116,9 @@ func TestPasskey_finishLogin(t *testing.T) {
 
 				return wa
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusInternalServerError,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "can't save user session: ")
+				assert.JSONEq(t, `"internal server error"`, string(body))
 			},
 		},
 	}
@@ -1171,9 +1169,9 @@ func TestPasskey_Logout(t *testing.T) {
 			name: "succ: logout deletes session and cookie",
 			w:    httptest.NewRecorder(),
 			r: func() *http.Request {
-				req := httptest.NewRequest(http.MethodGet, "/logout", http.NoBody)
+				req := httptest.NewRequest(http.MethodPost, "/logout", http.NoBody)
 				req.AddCookie(&http.Cookie{
-					Name:  camelCaseConcat(defaultSessionNamePrefix, defaultUserSessionName),
+					Name:  "__Host-" + camelCaseConcat(defaultSessionNamePrefix, defaultUserSessionName),
 					Value: "user-session-token-1234",
 				})
 
@@ -1189,7 +1187,7 @@ func TestPasskey_Logout(t *testing.T) {
 			checkCookie: func(cookies []*http.Cookie) {
 				require.Len(t, cookies, 1)
 				c := cookies[0]
-				assert.Equal(t, camelCaseConcat(defaultSessionNamePrefix, defaultUserSessionName), c.Name)
+				assert.Equal(t, "__Host-"+camelCaseConcat(defaultSessionNamePrefix, defaultUserSessionName), c.Name)
 				assert.Empty(t, c.Value)
 				assert.Equal(t, -1, c.MaxAge)
 			},
@@ -1198,7 +1196,7 @@ func TestPasskey_Logout(t *testing.T) {
 			name: "err: no cookie",
 			w:    httptest.NewRecorder(),
 			r: func() *http.Request {
-				return httptest.NewRequest(http.MethodGet, "/logout", http.NoBody)
+				return httptest.NewRequest(http.MethodPost, "/logout", http.NoBody)
 			},
 			userSessionStore: func() SessionStore[UserSessionData] {
 				return NewMockSessionStore[UserSessionData](t)
@@ -1226,7 +1224,10 @@ func TestPasskey_Logout(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			p.Logout(tt.w, tt.r())
+			req := tt.r()
+			req.Header.Set("Origin", "localhost")
+			p.Logout(tt.w, req)
+			assert.Equal(t, http.StatusNoContent, tt.w.Code)
 
 			if tt.checkCookie != nil {
 				tt.checkCookie(tt.w.Result().Cookies())

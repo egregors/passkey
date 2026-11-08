@@ -10,18 +10,15 @@ import (
 
 type AuthUserIDKey string
 
-// Auth implements a middleware handler for adding passkey http auth to a route.
-// It checks if the request has a valid session cookie and if the session is still valid.
-// If the session is valid:
-//   - `UserID` will be added to the request context;
-//   - `onSuccess` handler is called and the next handler is executed.
-//
-// Otherwise:
-//   - `onFail` handler is called and the next handler is not executed.
+// Auth adds a valid user session's ID to the context, or calls onFail.
+// A nil onFail defaults to Unauthorized.
 func (p *Passkey) Auth(userIDKey AuthUserIDKey, onSuccess, onFail http.HandlerFunc) func(next http.Handler) http.Handler {
+	if onFail == nil {
+		onFail = Unauthorized
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			sid, err := r.Cookie(p.cookieSettings.userSessionName)
+			sid, err := sessionCookie(r, p.cookieSettings.userSessionName)
 			if err != nil {
 				exec(onFail, w, r)
 
@@ -29,13 +26,8 @@ func (p *Passkey) Auth(userIDKey AuthUserIDKey, onSuccess, onFail http.HandlerFu
 			}
 
 			session, ok := p.userSessionStore.Get(sid.Value)
-			if !ok {
-				exec(onFail, w, r)
-
-				return
-			}
-
-			if session.Expires.Before(time.Now()) {
+			if !ok || session == nil || session.Purpose != userSessionPurpose ||
+				len(session.UserID) == 0 || !time.Now().Before(session.Expires) {
 				exec(onFail, w, r)
 
 				return
@@ -61,7 +53,7 @@ func Unauthorized(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusUnauthorized)
 }
 
-// RedirectUnauthorized redirects the user to the target URL with a 401 Unauthorized status code.
+// RedirectUnauthorized returns a 303 redirect to a local target, or Unauthorized for an invalid target.
 func RedirectUnauthorized(target url.URL) http.HandlerFunc {
 	if !isLocalRedirectTarget(target) {
 		return Unauthorized

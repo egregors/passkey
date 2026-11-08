@@ -34,6 +34,7 @@ func TestAuth(t *testing.T) {
 					store.EXPECT().
 						Get("valid").
 						Return(&UserSessionData{
+							Purpose: userSessionPurpose,
 							UserID:  []byte("42"),
 							Expires: time.Now().Add(time.Hour),
 						}, true).
@@ -46,7 +47,7 @@ func TestAuth(t *testing.T) {
 				req: func() *http.Request {
 					req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 					req.AddCookie(&http.Cookie{
-						Name:  camelCaseConcat(defaultSessionNamePrefix, defaultUserSessionName),
+						Name:  "__Host-" + camelCaseConcat(defaultSessionNamePrefix, defaultUserSessionName),
 						Value: "valid",
 					})
 
@@ -63,6 +64,7 @@ func TestAuth(t *testing.T) {
 					store.EXPECT().
 						Get("valid").
 						Return(&UserSessionData{
+							Purpose: userSessionPurpose,
 							UserID:  []byte("42"),
 							Expires: time.Now().Add(time.Hour),
 						}, true).
@@ -78,7 +80,7 @@ func TestAuth(t *testing.T) {
 				req: func() *http.Request {
 					req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 					req.AddCookie(&http.Cookie{
-						Name:  camelCaseConcat(defaultSessionNamePrefix, defaultUserSessionName),
+						Name:  "__Host-" + camelCaseConcat(defaultSessionNamePrefix, defaultUserSessionName),
 						Value: "valid",
 					})
 
@@ -109,7 +111,7 @@ func TestAuth(t *testing.T) {
 				req: func() *http.Request {
 					req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 					req.AddCookie(&http.Cookie{
-						Name:  camelCaseConcat(defaultSessionNamePrefix, defaultUserSessionName),
+						Name:  "__Host-" + camelCaseConcat(defaultSessionNamePrefix, defaultUserSessionName),
 						Value: "missing",
 					})
 
@@ -154,7 +156,7 @@ func TestAuth(t *testing.T) {
 				req: func() *http.Request {
 					req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 					req.AddCookie(&http.Cookie{
-						Name:  camelCaseConcat(defaultSessionNamePrefix, defaultUserSessionName),
+						Name:  "__Host-" + camelCaseConcat(defaultSessionNamePrefix, defaultUserSessionName),
 						Value: "missing",
 					})
 
@@ -171,6 +173,7 @@ func TestAuth(t *testing.T) {
 					store.EXPECT().
 						Get("expired").
 						Return(&UserSessionData{
+							Purpose: userSessionPurpose,
 							UserID:  []byte("42"),
 							Expires: time.Now().Add(-time.Hour),
 						}, true).
@@ -183,7 +186,7 @@ func TestAuth(t *testing.T) {
 				req: func() *http.Request {
 					req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 					req.AddCookie(&http.Cookie{
-						Name:  camelCaseConcat(defaultSessionNamePrefix, defaultUserSessionName),
+						Name:  "__Host-" + camelCaseConcat(defaultSessionNamePrefix, defaultUserSessionName),
 						Value: "expired",
 					})
 
@@ -230,6 +233,58 @@ func TestAuth(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAuthDefaultFailure(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		cookies []string
+		lookup  bool
+	}{
+		{"missing cookie", nil, false},
+		{"unknown session", []string{"unknown"}, true},
+		{"duplicate cookies", []string{"one", "two"}, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p := securityPasskey(t)
+			if tt.lookup {
+				p.userSessionStore.(*MockSessionStore[UserSessionData]).On("Get", "unknown").Return(nil, false).Once()
+			}
+			succeeded, reached := false, false
+			handler := p.Auth("user", func(http.ResponseWriter, *http.Request) {
+				succeeded = true
+			}, nil)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+				reached = true
+			}))
+			req := httptest.NewRequest(http.MethodGet, "/private", http.NoBody)
+			for _, token := range tt.cookies {
+				req.AddCookie(&http.Cookie{Name: p.cookieSettings.userSessionName, Value: token})
+			}
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			assert.Equal(t, http.StatusUnauthorized, rec.Code)
+			assert.False(t, succeeded)
+			assert.False(t, reached)
+			assert.Empty(t, rec.Result().Cookies())
+		})
+	}
+}
+
+func TestAuthCustomFailure(t *testing.T) {
+	p := securityPasskey(t)
+	failures := 0
+	handler := p.Auth("user", nil, func(w http.ResponseWriter, _ *http.Request) {
+		failures++
+		w.Header().Set("X-Auth-Failure", "custom")
+		w.WriteHeader(http.StatusForbidden)
+	})(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Error("protected handler ran after rejection")
+	}))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/private", http.NoBody))
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+	assert.Equal(t, "custom", rec.Header().Get("X-Auth-Failure"))
+	assert.Equal(t, 1, failures)
 }
 
 func TestRedirectUnauthorized(t *testing.T) {

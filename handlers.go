@@ -9,6 +9,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/go-webauthn/webauthn/protocol"
 )
 
 const (
@@ -55,7 +57,7 @@ func (p *Passkey) beginRegistration(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		if err != nil {
 			p.log.Errorf("%s", err.Error())
-			JSONResponse(w, err.Error(), http.StatusBadRequest)
+			writeHandlerError(w, err)
 			p.log.Debugf("begin registration: done with error")
 		}
 	}()
@@ -123,8 +125,6 @@ func (p *Passkey) beginRegistration(w http.ResponseWriter, r *http.Request) {
 	p.log.Debugf("setting cookie")
 	p.setRegistrationSessionCookie(w, t)
 
-	// return the options generated with the session key
-	// options.publicKey contain our registration options
 	JSONResponse(w, options, http.StatusOK)
 
 	p.log.Infof("<<< begin registration: done")
@@ -133,39 +133,32 @@ func (p *Passkey) beginRegistration(w http.ResponseWriter, r *http.Request) {
 func (p *Passkey) finishRegistration(w http.ResponseWriter, r *http.Request) {
 	p.log.Infof(">>> finish registration")
 
-	var err error
+	sid, err := sessionCookie(r, p.cookieSettings.registrationSessionName)
+	if err != nil {
+		writeHandlerError(w, fmt.Errorf("can't get session id: %w", err))
+		return
+	}
 	defer func() {
 		if err != nil {
 			p.deleteSessionCookie(p.cookieSettings.registrationSessionName, w)
 			p.log.Errorf("%s", err.Error())
-			JSONResponse(w, err.Error(), http.StatusBadRequest)
+			writeHandlerError(w, err)
 			p.log.Debugf("cleaned up session cookie")
 			p.log.Debugf("<<< finish registration: done with error")
 		}
 	}()
 
-	// Get the session key from cookie
-	p.log.Debugf("getting session id from cookie")
-	sid, err := r.Cookie(p.cookieSettings.registrationSessionName)
-	if err != nil {
-		err = fmt.Errorf("can't get session id: %w", err)
-
-		return
-	}
-	p.log.Debugf("got session id")
-
-	// Atomically consume registration session data
 	p.log.Debugf("try to consume session data")
 	regData, ok := p.registrationSessionStore.Consume(sid.Value)
 	if !ok || regData == nil {
-		err = fmt.Errorf("can't get session data")
+		err = fmt.Errorf("%w: can't get session data", errInvalidRequest)
 
 		return
 	}
 	p.log.Debugf("got session data")
 
 	if !regData.Expires.IsZero() && regData.Expires.Before(time.Now()) {
-		err = fmt.Errorf("registration session has expired")
+		err = fmt.Errorf("%w: registration session has expired", errInvalidRequest)
 
 		return
 	}
@@ -178,7 +171,7 @@ func (p *Passkey) finishRegistration(w http.ResponseWriter, r *http.Request) {
 	p.log.Debugf("try to get credential from webauthn")
 	credential, err := p.webAuthn.FinishRegistration(user, regData.Session, r)
 	if err != nil {
-		err = fmt.Errorf("can't finish registration: %w", err)
+		err = fmt.Errorf("can't finish registration: %w", verificationError(err))
 
 		return
 	}
@@ -210,7 +203,7 @@ func (p *Passkey) beginLogin(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		if err != nil {
 			p.log.Errorf("%s", err.Error())
-			JSONResponse(w, err.Error(), http.StatusBadRequest)
+			writeHandlerError(w, err)
 			p.log.Debugf("<<< begin login: done with error")
 		}
 	}()
@@ -259,8 +252,6 @@ func (p *Passkey) beginLogin(w http.ResponseWriter, r *http.Request) {
 	p.log.Debugf("setting cookie")
 	p.setLoginSessionCookie(w, t)
 
-	// return the options generated with the session key
-	// options.publicKey contain our registration options
 	JSONResponse(w, options, http.StatusOK)
 
 	p.log.Infof("<<< begin login: done")
@@ -273,14 +264,13 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		if err != nil {
 			p.log.Errorf("%s", err.Error())
-			JSONResponse(w, err.Error(), http.StatusBadRequest)
+			writeHandlerError(w, err)
 			p.log.Debugf("<<< finish login: done with error")
 		}
 	}()
 
-	// Get the session key from cookie
 	p.log.Debugf("getting session id from cookie")
-	sid, err := r.Cookie(p.cookieSettings.loginSessionName)
+	sid, err := sessionCookie(r, p.cookieSettings.loginSessionName)
 	if err != nil {
 		err = fmt.Errorf("can't get session id: %w", err)
 
@@ -295,14 +285,14 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 	p.log.Debugf("try to consume session data")
 	session, ok := p.loginSessionStore.Consume(sid.Value)
 	if !ok || session == nil {
-		err = fmt.Errorf("can't get session data")
+		err = fmt.Errorf("%w: can't get session data", errInvalidRequest)
 
 		return
 	}
 	p.log.Debugf("got session data")
 
 	if session.Expires.IsZero() || !time.Now().Before(session.Expires) {
-		err = fmt.Errorf("login session has expired")
+		err = fmt.Errorf("%w: login session has expired", errInvalidRequest)
 
 		return
 	}
@@ -319,31 +309,27 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 	p.log.Debugf("try to get credential from webauthn")
 	credential, err := p.webAuthn.FinishLogin(user, *session, r)
 	if err != nil {
-		err = fmt.Errorf("can't finish login: %w", err)
+		err = fmt.Errorf("can't finish login: %w", verificationError(err))
 
 		return
 	}
 	p.log.Debugf("got credential")
 
-	// Handle credential.Authenticator.CloneWarning
 	if credential.Authenticator.CloneWarning {
 		p.log.Warnf("the authenticator may be cloned")
 	}
 
-	// If login was successful, update the credential object
-	p.log.Debugf("putting credential to user")
-	p.log.Debugf("try to save user")
-	user.PutCredential(*credential)
-	err = p.userStore.Update(user)
+	err = p.userStore.UpdateCredential(session.UserID, *credential)
 	if err != nil {
-		err = fmt.Errorf("can't save user: %w", err)
+		err = fmt.Errorf("can't update credential: %w", err)
 
 		return
 	}
-	p.log.Debugf("user saved")
+	p.log.Debugf("credential updated")
 
 	p.log.Debugf("try to save user session")
 	t, err := p.userSessionStore.Create(UserSessionData{
+		Purpose: userSessionPurpose,
 		UserID:  session.UserID,
 		Expires: time.Now().Add(p.cookieSettings.userSessionMaxAge),
 	})
@@ -390,9 +376,6 @@ func (p *Passkey) setUserSessionCookie(w http.ResponseWriter, value string) {
 }
 
 func (p *Passkey) setSessionCookie(w http.ResponseWriter, name, value string, maxAge time.Duration) {
-	// Secure is enabled by default and can only be disabled explicitly with
-	// WithInsecureCookie for local development. HttpOnly and SameSite are
-	// initialized to secure values in setupCookieSettings.
 	//nolint:gosec // G124 cannot infer the secure defaults behind cookieSettings.
 	http.SetCookie(w, &http.Cookie{
 		Name:     name,
@@ -405,23 +388,27 @@ func (p *Passkey) setSessionCookie(w http.ResponseWriter, name, value string, ma
 	})
 }
 
-// Logout deletes session from session store and deletes session cookie
+// Logout accepts POST with an allowed Origin, revokes the session, and returns 204.
 func (p *Passkey) Logout(w http.ResponseWriter, r *http.Request) {
-	sid, err := r.Cookie(p.cookieSettings.userSessionName)
+	if !p.allowMutation(w, r) {
+		return
+	}
+	sid, err := sessionCookie(r, p.cookieSettings.userSessionName)
 	if err != nil {
-		p.log.Errorf("can't get session cookie: %s", err.Error())
-
+		if errors.Is(err, http.ErrNoCookie) {
+			w.WriteHeader(http.StatusNoContent)
+		} else {
+			writeHandlerError(w, err)
+		}
 		return
 	}
 
 	p.userSessionStore.Delete(sid.Value)
 	p.deleteSessionCookie(p.cookieSettings.userSessionName, w)
+	w.WriteHeader(http.StatusNoContent)
 }
 
-// deleteSessionCookie deletes a cookie
-func (p *Passkey) deleteSessionCookie(name string, w http.ResponseWriter) { //nolint:unparam // it's ok here
-	// Use the same scope and security attributes as the original cookie so the
-	// browser reliably expires that cookie instead of creating a second one.
+func (p *Passkey) deleteSessionCookie(name string, w http.ResponseWriter) {
 	//nolint:gosec // G124 cannot infer the secure defaults behind cookieSettings.
 	http.SetCookie(w, &http.Cookie{
 		Name:     name,
@@ -435,14 +422,13 @@ func (p *Passkey) deleteSessionCookie(name string, w http.ResponseWriter) { //no
 	})
 }
 
-// getUsername extracts an username from json request
 func getUsername(r *http.Request) (string, error) {
 	var u struct {
 		Username string `json:"username"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&u); err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
 	if u.Username == "" {
@@ -453,6 +439,43 @@ func getUsername(r *http.Request) (string, error) {
 	}
 
 	return u.Username, nil
+}
+
+func writeHandlerError(w http.ResponseWriter, err error) {
+	status, message := http.StatusInternalServerError, "internal server error"
+	switch {
+	case errors.Is(err, ErrSessionStoreFull):
+		status, message = http.StatusServiceUnavailable, ErrSessionStoreFull.Error()
+	case errors.Is(err, errInvalidRequest), errors.Is(err, http.ErrNoCookie):
+		status, message = http.StatusBadRequest, "invalid request"
+	case errors.Is(err, ErrNoUsername):
+		status, message = http.StatusBadRequest, ErrNoUsername.Error()
+	case errors.Is(err, ErrUsernameTooLong):
+		status, message = http.StatusBadRequest, ErrUsernameTooLong.Error()
+	case errors.Is(err, ErrUserAlreadyExists):
+		status, message = http.StatusConflict, ErrUserAlreadyExists.Error()
+	case errors.Is(err, ErrUserNotFound):
+		status, message = http.StatusNotFound, ErrUserNotFound.Error()
+	case errors.Is(err, ErrCredentialNotFound):
+		status, message = http.StatusNotFound, ErrCredentialNotFound.Error()
+	}
+	JSONResponse(w, message, status)
+}
+
+func verificationError(err error) error {
+	var failure *protocol.Error
+	if errors.As(err, &failure) && failure != nil {
+		switch failure.Type {
+		case protocol.ErrBadRequest.Type, protocol.ErrPolicyRestriction.Type,
+			protocol.ErrChallengeMismatch.Type, protocol.ErrParsingData.Type,
+			protocol.ErrAuthData.Type, protocol.ErrVerification.Type,
+			protocol.ErrAttestation.Type, protocol.ErrInvalidAttestation.Type,
+			protocol.ErrAttestationCertificate.Type, protocol.ErrAssertionSignature.Type,
+			protocol.ErrUnsupportedKey.Type, protocol.ErrUnsupportedAlgorithm.Type:
+			return fmt.Errorf("%w: %w", errInvalidRequest, err)
+		}
+	}
+	return err
 }
 
 // JSONResponse sends json response
