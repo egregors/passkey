@@ -15,7 +15,6 @@ type Logger interface {
 // User is a user with webauthn credentials
 type User interface {
 	webauthn.User
-	PutCredential(webauthn.Credential)
 }
 
 // NewUser contains the data required to create a new registered user.
@@ -28,9 +27,14 @@ type NewUser struct {
 // UserStore is a persistent storage for users and credentials.
 // Implementations of Create must atomically persist the account and its initial credential,
 // preserving the exact UserID handle, and enforcing unique username and user ID.
+// Reads and Create return detached snapshots, including credential byte slices.
 type UserStore interface {
 	Create(u NewUser) (User, error)
-	Update(User) error
+	// UpdateCredential atomically updates an existing credential's authentication state.
+	// Preserve registration data and other credentials; ignore updates with older counters.
+	// Retain previously observed clone warnings.
+	// Unknown users and credentials return ErrUserNotFound and ErrCredentialNotFound respectively.
+	UpdateCredential(userID []byte, credential webauthn.Credential) error
 
 	Get(userID []byte) (User, error)
 	GetByName(username string) (User, error)

@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -84,7 +85,7 @@ func TestFinishLoginServerExpiration(t *testing.T) {
 			// Optional expectations let this test demonstrate the original vulnerability,
 			// while call counts below enforce rejection before any user access.
 			f.users.On("Get", f.userID).Return(f.user, nil).Maybe()
-			f.users.On("Update", f.user).Return(nil).Maybe()
+			f.users.On("UpdateCredential", f.userID, mock.AnythingOfType("webauthn.Credential")).Return(nil).Maybe()
 			rec := f.finish(f.assertion) // Sends the saved cookie manually, independent of browser expiry.
 			wantCalls := 0
 			if tt.wantValid {
@@ -96,8 +97,7 @@ func TestFinishLoginServerExpiration(t *testing.T) {
 			}
 			assertLoginCookieCleared(t, f.p, rec)
 			f.users.AssertNumberOfCalls(t, "Get", wantCalls)
-			f.users.AssertNumberOfCalls(t, "Update", wantCalls)
-			f.user.AssertNumberOfCalls(t, "PutCredential", wantCalls)
+			f.users.AssertNumberOfCalls(t, "UpdateCredential", wantCalls)
 			assert.Equal(t, wantCalls, f.authSessions.count())
 			_, ok = f.p.loginSessionStore.Get(f.token)
 			assert.False(t, ok, "expired and legacy sessions must also be consumed")

@@ -330,17 +330,13 @@ func (p *Passkey) finishLogin(w http.ResponseWriter, r *http.Request) {
 		p.log.Warnf("the authenticator may be cloned")
 	}
 
-	// If login was successful, update the credential object
-	p.log.Debugf("putting credential to user")
-	p.log.Debugf("try to save user")
-	user.PutCredential(*credential)
-	err = p.userStore.Update(user)
+	err = p.userStore.UpdateCredential(session.UserID, *credential)
 	if err != nil {
-		err = fmt.Errorf("can't save user: %w", err)
+		err = fmt.Errorf("can't update credential: %w", err)
 
 		return
 	}
-	p.log.Debugf("user saved")
+	p.log.Debugf("credential updated")
 
 	p.log.Debugf("try to save user session")
 	t, err := p.userSessionStore.Create(UserSessionData{

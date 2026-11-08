@@ -795,8 +795,6 @@ func TestPasskey_deleteSessionCookie(t *testing.T) {
 func TestPasskey_finishLogin(t *testing.T) {
 	user := NewMockUser(t)
 	user.EXPECT().
-		PutCredential(mock.AnythingOfType("webauthn.Credential"))
-	user.EXPECT().
 		WebAuthnName().
 		Return("root@example.com")
 
@@ -830,7 +828,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 					Times(1).
 					Return(user, nil)
 				uStore.EXPECT().
-					Update(user).
+					UpdateCredential([]byte("1234-5678-9012-3456"), mock.AnythingOfType("webauthn.Credential")).
 					Times(1).
 					Return(nil)
 
@@ -1016,7 +1014,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 			},
 		},
 		{
-			name: "err: can't save user after putting credential",
+			name: "err: credential update failed",
 			w:    httptest.NewRecorder(),
 			r: func() *http.Request {
 				req := httptest.NewRequest(http.MethodPost, pathLoginFinish, http.NoBody)
@@ -1034,7 +1032,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 					Times(1).
 					Return(user, nil)
 				uStore.EXPECT().
-					Update(user).
+					UpdateCredential([]byte("1234-5678-9012-3456"), mock.AnythingOfType("webauthn.Credential")).
 					Times(1).
 					Return(assert.AnError)
 
@@ -1063,7 +1061,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 			},
 			wantStatus: http.StatusBadRequest,
 			checkResp: func(body []byte) {
-				assert.Contains(t, string(body), "can't save user: ")
+				assert.Contains(t, string(body), "can't update credential: ")
 			},
 		},
 		{
@@ -1085,7 +1083,7 @@ func TestPasskey_finishLogin(t *testing.T) {
 					Times(1).
 					Return(user, nil)
 				uStore.EXPECT().
-					Update(user).
+					UpdateCredential([]byte("1234-5678-9012-3456"), mock.AnythingOfType("webauthn.Credential")).
 					Times(1).
 					Return(nil)
 

@@ -15,34 +15,48 @@ import (
 // -- User storage methods --
 
 type UserStore struct {
-	users map[string]passkey.User
+	users map[string]*User
 	mu    sync.RWMutex
 }
 
 func NewUserStore() *UserStore {
 	return &UserStore{
-		users: make(map[string]passkey.User),
+		users: make(map[string]*User),
 		mu:    sync.RWMutex{},
 	}
 }
 
-func (s *UserStore) Update(user passkey.User) error {
+func (s *UserStore) UpdateCredential(userID []byte, credential webauthn.Credential) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.users[user.WebAuthnName()] = user
-
-	return nil
+	for _, user := range s.users {
+		if !bytes.Equal(user.ID, userID) {
+			continue
+		}
+		for i := range user.creds {
+			stored := &user.creds[i]
+			if bytes.Equal(stored.ID, credential.ID) {
+				stored.Authenticator.CloneWarning = stored.Authenticator.CloneWarning || credential.Authenticator.CloneWarning
+				if credential.Authenticator.SignCount >= stored.Authenticator.SignCount {
+					stored.Authenticator.SignCount = credential.Authenticator.SignCount
+					stored.Flags = credential.Flags
+				}
+				return nil
+			}
+		}
+		return passkey.ErrCredentialNotFound
+	}
+	return passkey.ErrUserNotFound
 }
 
 func (s *UserStore) Get(userID []byte) (passkey.User, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	// TODO: full scan, optimize eventually
 	for _, u := range s.users {
 		if bytes.Equal(u.WebAuthnID(), userID) {
-			return u, nil
+			return u.snapshot(), nil
 		}
 	}
 
@@ -54,7 +68,7 @@ func (s *UserStore) GetByName(username string) (passkey.User, error) {
 	defer s.mu.RUnlock()
 
 	if u, ok := s.users[username]; ok {
-		return u, nil
+		return u.snapshot(), nil
 	}
 
 	return nil, passkey.ErrUserNotFound
@@ -67,34 +81,19 @@ func (s *UserStore) Create(user passkey.NewUser) (passkey.User, error) {
 	if _, ok := s.users[user.Username]; ok {
 		return nil, fmt.Errorf("%w: user %s already exists", passkey.ErrUserAlreadyExists, user.Username)
 	}
+	for _, existing := range s.users {
+		if bytes.Equal(existing.ID, user.UserID) {
+			return nil, passkey.ErrUserAlreadyExists
+		}
+	}
 
 	u := &User{
 		ID:    user.UserID,
 		Name:  user.Username,
 		creds: []webauthn.Credential{user.Credential},
 	}
-	s.users[user.Username] = u
-
+	s.users[user.Username] = u.snapshot()
 	return u, nil
-}
-
-func (s *UserStore) GetOrCreateUser(userName string) passkey.User {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if user, ok := s.users[userName]; ok {
-		return user
-	}
-
-	u := User{
-		ID:          []byte(userName),
-		DisplayName: userName,
-		Name:        userName,
-	}
-
-	s.users[userName] = &u
-
-	return &u
 }
 
 // -- Session storage methods --

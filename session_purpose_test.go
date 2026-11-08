@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -115,7 +116,7 @@ func TestSessionPurposeWithSharedBackend(t *testing.T) {
 			f.token, err = loginStore.Create(*session)
 			require.NoError(t, err)
 			f.users.On("Get", f.userID).Return(f.user, nil).Once()
-			f.users.On("Update", f.user).Return(nil).Once()
+			f.users.On("UpdateCredential", f.userID, mock.AnythingOfType("webauthn.Credential")).Return(nil).Once()
 			finish := f.finish(f.assertion)
 			require.Equal(t, http.StatusOK, finish.Code)
 			var userToken string

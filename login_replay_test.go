@@ -36,7 +36,7 @@ func TestLoginConcurrentReplay(t *testing.T) {
 			<-release
 		}
 	}).Return(f.user, nil)
-	f.users.On("Update", f.user).Return(nil)
+	f.users.On("UpdateCredential", f.userID, mock.AnythingOfType("webauthn.Credential")).Return(nil)
 
 	first := make(chan *httptest.ResponseRecorder, 1)
 	go func() { first <- f.finish(f.assertion) }()
@@ -62,14 +62,15 @@ func TestLoginConcurrentReplay(t *testing.T) {
 	}
 	assert.Equal(t, 1, f.authSessions.count())
 	f.users.AssertNumberOfCalls(t, "Get", 1)
-	f.users.AssertNumberOfCalls(t, "Update", 1)
-	f.user.AssertNumberOfCalls(t, "PutCredential", 1)
+	f.users.AssertNumberOfCalls(t, "UpdateCredential", 1)
 }
 
 func TestLoginSequentialReplay(t *testing.T) {
 	f := newLoginReplayFixture(t)
 	f.users.On("Get", f.userID).Return(f.user, nil).Once()
-	f.users.On("Update", f.user).Return(nil).Once()
+	f.users.On("UpdateCredential", f.userID, mock.MatchedBy(func(c webauthn.Credential) bool {
+		return bytes.Equal(c.ID, []byte("replay-credential")) && c.Flags.UserPresent && c.Flags.UserVerified
+	})).Return(nil).Once()
 	first := f.finish(f.assertion)
 	assert.Equal(t, http.StatusOK, first.Code)
 	assertLoginCookieCleared(t, f.p, first)
@@ -109,7 +110,7 @@ func TestLoginStorageFailureConsumesChallenge(t *testing.T) {
 				} else {
 					f.authSessions.createErr = assert.AnError
 				}
-				f.users.On("Update", f.user).Return(updateErr).Once()
+				f.users.On("UpdateCredential", f.userID, mock.AnythingOfType("webauthn.Credential")).Return(updateErr).Once()
 			}
 			first := f.finish(f.assertion)
 			assert.Equal(t, http.StatusBadRequest, first.Code)
@@ -158,7 +159,6 @@ func newLoginReplayFixture(t *testing.T) *loginReplayFixture {
 	user.On("WebAuthnID").Return(uid)
 	user.On("WebAuthnName").Return("replay-user").Maybe()
 	user.On("WebAuthnCredentials").Return([]webauthn.Credential{{ID: cid, PublicKey: key}})
-	user.On("PutCredential", mock.Anything).Return().Maybe()
 	users := NewMockUserStore(t)
 	loginSessions := &loginReplayStore[webauthn.SessionData]{data: make(map[string]webauthn.SessionData)}
 	authSessions := &loginReplayStore[UserSessionData]{data: make(map[string]UserSessionData)}
