@@ -15,22 +15,45 @@ type Logger interface {
 // User is a user with webauthn credentials
 type User interface {
 	webauthn.User
-	PutCredential(webauthn.Credential)
 }
 
-// UserStore is a persistent storage for users and credentials
+// NewUser contains the data required to create a new registered user.
+type NewUser struct {
+	Username   string
+	UserID     []byte
+	Credential webauthn.Credential
+}
+
+// UserStore is a persistent storage for users and credentials.
+// Implementations of Create must atomically persist the account and its initial credential,
+// preserving the exact UserID handle, and enforcing unique username and user ID.
+// Create returns ErrUserAlreadyExists on conflicts; lookups return ErrUserNotFound for missing users.
+// Reads and Create return detached snapshots, including credential byte slices.
+// Errors may be logged; adapters must not include secrets or session tokens in them.
 type UserStore interface {
-	Create(username string) (User, error)
-	Update(User) error
+	Create(u NewUser) (User, error)
+	// UpdateCredential atomically updates an existing credential's authentication state.
+	// Preserve registration data and other credentials; ignore updates with older counters.
+	// Retain previously observed clone warnings.
+	// Unknown users and credentials return ErrUserNotFound and ErrCredentialNotFound respectively.
+	UpdateCredential(userID []byte, credential webauthn.Credential) error
 
 	Get(userID []byte) (User, error)
 	GetByName(username string) (User, error)
 }
 
-// SessionStore is a storage for session data
-type SessionStore[T webauthn.SessionData | UserSessionData] interface {
+// SessionStore is a storage for session data.
+// Stores must use distinct key namespaces for each session type and application/tenant scope.
+// Create must return a unique, cryptographically random token with at least 128 bits of entropy.
+// Serialization must preserve all fields, including Purpose; adapters must not synthesize missing fields.
+// Consume must atomically retrieve and delete the session identified by token to prevent replay.
+// Get and Consume return (nil, false) for missing or expired records.
+// Login and registration handlers consume ceremony sessions before verification, including failed attempts.
+// Stores must bound retained records and reclaim expired entries before rejecting new sessions.
+// Create returns ErrSessionStoreFull when capacity is exhausted; handlers enforce expiration independently.
+type SessionStore[T any] interface {
 	Create(data T) (string, error)
 	Delete(token string)
-
 	Get(token string) (*T, bool)
+	Consume(token string) (*T, bool)
 }

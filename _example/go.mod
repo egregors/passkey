@@ -5,7 +5,6 @@ go 1.25.0
 require (
 	github.com/egregors/passkey v0.0.0-00010101000000-000000000000
 	github.com/go-webauthn/webauthn v0.17.4
-	github.com/google/uuid v1.6.0
 )
 
 require (
@@ -15,6 +14,7 @@ require (
 	github.com/go-webauthn/x v0.2.6 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/google/go-tpm v0.9.8 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect

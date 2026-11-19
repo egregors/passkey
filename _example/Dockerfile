@@ -6,7 +6,7 @@ WORKDIR /app
 
 COPY . .
 
-RUN go build -o ./_example/main ./_example/*.go
+RUN go -C _example build -o main .
 
 FROM scratch
 
