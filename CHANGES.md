@@ -1,22 +1,29 @@
 Changes
 =======
 
-#### Unreleased (next major)
+#### ver.: 2.0.0 (19.11.2026)
 
+* Require Go 1.25 or newer.
 * Replace `User.PutCredential` and `UserStore.Update` with atomic `UserStore.UpdateCredential`.
-  Storage reads and account creation must return detached snapshots; preserve registered
-  credential data, concurrent updates, counters, and clone warnings.
-* Require isolated session-store namespaces, unpredictable tokens, atomic consumption,
+  Storage reads and account creation must return detached snapshots and preserve credential data,
+  counters, and clone warnings.
+* Create accounts only after successful registration verification, with atomic conflict detection
+  to prevent account squatting.
+* Require isolated session-store namespaces, unpredictable tokens, atomic `Consume`,
   expiration enforcement, and bounded storage. Full stores return `ErrSessionStoreFull` (HTTP 503).
-* Validate authenticated-session purpose, identity, and expiration. Existing unmarked
-  sessions and sessions using the old production cookie names require a new login.
+* Validate authenticated-session purpose, identity, and expiration. Existing unmarked sessions
+  and sessions using old production cookie names require a new login.
 * Use `__Host-` production cookies and reject duplicate session cookies.
   `WithInsecureCookie` uses ordinary names for local HTTP development.
-* Require POST and a configured Origin for all ceremony endpoints and logout.
-  Logout returns 204. Failed verification consumes the ceremony; restart at its begin endpoint.
-* Return stable public errors with explicit HTTP statuses. `Auth` defaults to 401 on failure.
-* Fix the example's shared user-store wiring, bound its session stores, and test its full
-  registration/login/private-page/logout flow in CI.
+* Require POST and a configured Origin for ceremony endpoints and logout.
+  Logout clears the authenticated session and returns 204.
+  Failed verification consumes the ceremony; restart at its begin endpoint.
+* Limit ceremony request bodies to 1 MiB (HTTP 413) and usernames to 256 bytes (HTTP 400).
+* Return stable public errors without backend diagnostics.
+  `Auth` defaults to HTTP 401 on failure; remove sensitive data from debug logs.
+* Revamp documentation with storage contracts, configuration examples, and security guidance.
+* Fix the example's shared user-store wiring, bound its session stores, and test registration,
+  login, private-page access, and logout in CI.
 
 #### ver.: 1.0.9 (05.08.2026)
 
