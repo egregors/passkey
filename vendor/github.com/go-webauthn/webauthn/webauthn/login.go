@@ -15,7 +15,9 @@ import (
 // LoginOption is a functional option that modifies the [protocol.PublicKeyCredentialRequestOptions] sent to the
 // client during a login ceremony. Use the With* functions in this package (i.e. [WithUserVerification],
 // [WithAllowedCredentials]) to create login options.
-type LoginOption func(*protocol.PublicKeyCredentialRequestOptions)
+//
+// An option returns an error to reject the ceremony; [WebAuthn.BeginLogin] aborts on the first error.
+type LoginOption func(*protocol.PublicKeyCredentialRequestOptions) error
 
 // DiscoverableUserHandler is a callback function that the Relying Party must provide when performing a discoverable
 // (passkey) login. It is called with the rawID of the credential and the userHandle from the authenticator response,
@@ -91,7 +93,9 @@ func (webauthn *WebAuthn) beginLogin(userID []byte, allowedCredentials []protoco
 	}
 
 	for _, opt := range opts {
-		opt(&assertion.Response)
+		if err = opt(&assertion.Response); err != nil {
+			return nil, nil, fmt.Errorf("error applying login option: %w", err)
+		}
 	}
 
 	if len(assertion.Response.Challenge) == 0 {
@@ -113,6 +117,12 @@ func (webauthn *WebAuthn) beginLogin(userID []byte, allowedCredentials []protoco
 		return nil, nil, fmt.Errorf("error generating assertion: the relying party id failed to validate as it's not a valid domain string with error: %w", err)
 	}
 
+	if len(assertion.Response.Origin) != 0 {
+		if err = validateCeremonyOrigin(assertion.Response.Origin, webauthn.Config.RPOrigins); err != nil {
+			return nil, nil, fmt.Errorf("error generating assertion: %w", err)
+		}
+	}
+
 	if assertion.Response.Timeout == 0 {
 		switch assertion.Response.UserVerification {
 		case protocol.VerificationDiscouraged:
@@ -122,13 +132,22 @@ func (webauthn *WebAuthn) beginLogin(userID []byte, allowedCredentials []protoco
 		}
 	}
 
+	// See the equivalent comment in BeginMediatedRegistration. A discoverable login has no allowed credentials and
+	// therefore never carries a FIDO U2F credential.
+	if !hasU2FCredential(assertion.Response.AllowedCredentials) {
+		assertion.Response.Extensions.AppID = ""
+	}
+
 	session = &SessionData{
 		Challenge:            assertion.Response.Challenge.String(),
 		RelyingPartyID:       assertion.Response.RelyingPartyID,
+		Origin:               assertion.Response.Origin,
 		UserID:               userID,
 		AllowedCredentialIDs: assertion.Response.GetAllowedCredentialIDs(),
 		UserVerification:     assertion.Response.UserVerification,
-		Extensions:           assertion.Response.Extensions,
+		Extensions:           assertion.Response.Extensions.Session(),
+
+		AuthorizeUVInitialization: assertion.Response.AuthorizeUVInitialization,
 	}
 
 	if webauthn.Config.Timeouts.Login.Enforce {
@@ -222,6 +241,10 @@ func (webauthn *WebAuthn) ValidateLogin(user User, session SessionData, parsedRe
 		return nil, protocol.ErrBadRequest.WithDetails("Session has Expired")
 	}
 
+	if err = validateSessionChallenge(session.Challenge); err != nil {
+		return nil, err
+	}
+
 	return webauthn.validateLogin(user, session, parsedResponse)
 }
 
@@ -257,6 +280,10 @@ func (webauthn *WebAuthn) ValidatePasskeyLogin(handler DiscoverableUserHandler, 
 
 	if !session.Expires.IsZero() && session.Expires.Before(time.Now()) {
 		return nil, nil, protocol.ErrBadRequest.WithDetails("Session has Expired")
+	}
+
+	if err = validateSessionChallenge(session.Challenge); err != nil {
+		return nil, nil, err
 	}
 
 	if len(parsedResponse.Response.UserHandle) == 0 {
@@ -354,8 +381,9 @@ func (webauthn *WebAuthn) validateLogin(user User, session SessionData, parsedRe
 	shouldVerifyUser := session.UserVerification == protocol.VerificationRequired
 	shouldVerifyUserPresence := true
 
-	rpID := webauthn.Config.RPID
-	rpOrigins := webauthn.Config.RPOrigins
+	rpID := session.GetRelyingPartyID(webauthn.Config.RPID)
+	rpOrigins := session.GetOrigins(webauthn.Config.RPOrigins)
+	rpOpaqueOrigins := webauthn.Config.RPOpaqueOrigins
 	rpTopOrigins := webauthn.Config.RPTopOrigins
 
 	if appID, err = parsedResponse.GetAppID(session.Extensions, credential.AttestationFormat); err != nil {
@@ -363,7 +391,11 @@ func (webauthn *WebAuthn) validateLogin(user User, session SessionData, parsedRe
 	}
 
 	// Handle steps 4 through 16.
-	if err = parsedResponse.Verify(session.Challenge, rpID, appID, rpOrigins, rpTopOrigins, webauthn.Config.RPTopOriginVerificationMode, webauthn.Config.RPAllowCrossOrigin, shouldVerifyUser, shouldVerifyUserPresence, credential.PublicKey); err != nil {
+	if err = parsedResponse.Verify(session.Challenge, rpID, appID, rpOrigins, rpOpaqueOrigins, rpTopOrigins, webauthn.Config.RPTopOriginVerificationMode, webauthn.Config.RPAllowCrossOrigin, shouldVerifyUser, shouldVerifyUserPresence, credential.PublicKey, webauthn.Config.Signature); err != nil {
+		return nil, err
+	}
+
+	if err = parsedResponse.ClientExtensionResults.Verify(session.Extensions, protocol.AssertCeremony, webauthn.Config.ExtensionsUnsolicitedOutputPolicy); err != nil {
 		return nil, err
 	}
 
@@ -373,15 +405,21 @@ func (webauthn *WebAuthn) validateLogin(user User, session SessionData, parsedRe
 	}
 
 	// Check for the invalid combination BE=0 and BS=1.
-	if !parsedResponse.Response.AuthenticatorData.Flags.HasBackupEligible() && parsedResponse.Response.AuthenticatorData.Flags.HasBackupState() {
+	if flags := parsedResponse.Response.AuthenticatorData.Flags; !flags.HasBackupEligible() && flags.HasBackupState() {
 		return nil, protocol.ErrBadRequest.WithDetails("Backup State Flag is true but Backup Eligible flag is false which is invalid")
 	}
 
 	// Handle step 17.
 	credential.Authenticator.UpdateCounter(parsedResponse.Response.AuthenticatorData.Counter)
 
-	// Update flags from response data.
-	credential.Flags = NewCredentialFlags(parsedResponse.Response.AuthenticatorData.Flags)
+	// Update flags from response data. The user verification flag only advances from false to true when the Relying
+	// Party authorized it when the ceremony was begun; see [CredentialFlags.Update] and
+	// [CredentialFlags.UpdateWithUVInitialization].
+	if session.AuthorizeUVInitialization {
+		credential.Flags = credential.Flags.UpdateWithUVInitialization(parsedResponse.Response.AuthenticatorData.Flags)
+	} else {
+		credential.Flags = credential.Flags.Update(parsedResponse.Response.AuthenticatorData.Flags)
+	}
 
 	return &credential, nil
 }

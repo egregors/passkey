@@ -3,8 +3,8 @@ package protocol
 import (
 	"bytes"
 	"crypto/x509"
-	"encoding/asn1"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -39,7 +39,7 @@ func init() {
 // Specification: §8.2. Packed Attestation Statement Format
 //
 // See: https://www.w3.org/TR/webauthn/#sctn-packed-attestation
-func attestationFormatValidationHandlerPacked(att AttestationObject, clientDataHash []byte, mds metadata.Provider) (attestationType string, x5cs []any, err error) {
+func attestationFormatValidationHandlerPacked(att AttestationObject, clientDataHash []byte, mds metadata.Provider, policy AttestationPolicy, signature SignaturePolicy) (attestationType string, x5cs []any, err error) {
 	var (
 		alg int64
 		sig []byte
@@ -63,7 +63,7 @@ func attestationFormatValidationHandlerPacked(att AttestationObject, clientDataH
 	// Step 2. If x5c is present, this indicates that the attestation type is not ECDAA.
 	if x5c, ok = att.AttStatement[stmtX5C].([]any); ok {
 		// Handle Basic Attestation steps for the x509 Certificate.
-		return handleBasicAttestation(sig, clientDataHash, att.RawAuthData, att.AuthData.AttData.AAGUID, alg, x5c, mds)
+		return handleBasicAttestation(sig, clientDataHash, att.RawAuthData, att.AuthData.AttData.AAGUID, alg, x5c, mds, signature)
 	}
 
 	// Step 3. If ecdaaKeyId is present, then the attestation type is ECDAA.
@@ -75,13 +75,13 @@ func attestationFormatValidationHandlerPacked(att AttestationObject, clientDataH
 	}
 
 	// Step 4. If neither x5c nor ecdaaKeyId is present, self attestation is in use.
-	return handleSelfAttestation(alg, att.AuthData.AttData.CredentialPublicKey, att.RawAuthData, clientDataHash, sig, mds)
+	return handleSelfAttestation(alg, att.AuthData.AttData.CredentialPublicKey, att.RawAuthData, clientDataHash, sig, mds, signature)
 }
 
 // Handle the attestation steps laid out in the basic format.
 //
 //nolint:gocyclo
-func handleBasicAttestation(sig, clientDataHash, authData, aaguid []byte, alg int64, x5c []any, _ metadata.Provider) (attestationType string, x5cs []any, err error) {
+func handleBasicAttestation(sig, clientDataHash, authData, aaguid []byte, alg int64, x5c []any, _ metadata.Provider, policy SignaturePolicy) (attestationType string, x5cs []any, err error) {
 	// Step 2.1. Verify that sig is a valid signature over the concatenation of authenticatorData
 	// and clientDataHash using the attestation public key in attestnCert with the algorithm specified in alg.
 	var attestnCert *x509.Certificate
@@ -110,11 +110,11 @@ func handleBasicAttestation(sig, clientDataHash, authData, aaguid []byte, alg in
 		return "", x5c, ErrAttestation.WithDetails("Error getting certificate from x5c cert chain")
 	}
 
-	signatureData := append(authData, clientDataHash...) //nolint:gocritic // This is intentional.
+	signatureData := slices.Concat(authData, clientDataHash)
 
 	if sigAlg := webauthncose.SigAlgFromCOSEAlg(webauthncose.COSEAlgorithmIdentifier(alg)); sigAlg == x509.UnknownSignatureAlgorithm {
 		return "", nil, ErrInvalidAttestation.WithDetails(fmt.Sprintf("Unsupported COSE alg: %d", alg))
-	} else if err = attestnCert.CheckSignature(sigAlg, signatureData, sig); err != nil {
+	} else if err = certCheckSignature(attestnCert, sigAlg, signatureData, sig, policy); err != nil {
 		return "", nil, ErrInvalidAttestation.WithDetails(fmt.Sprintf("Signature validation error: %+v", err)).WithError(err)
 	}
 
@@ -157,33 +157,22 @@ func handleBasicAttestation(sig, clientDataHash, authData, aaguid []byte, alg in
 	// Step 2.2.3 (from §8.2.1) If the related attestation root certificate is used for multiple authenticator models,
 	// the Extension OID 1.3.6.1.4.1.45724.1.1.4 (id-fido-gen-ce-aaguid) MUST be present, containing the
 	// AAGUID as a 16-byte OCTET STRING. The extension MUST NOT be marked as critical.
-	var foundAAGUID []byte
+	//
+	// We validate the AAGUID as mentioned above. This is not well defined in §8.2.1 but mentioned in step 2.3: we
+	// validate the AAGUID if it is present within the certificate and make sure it matches the auth data AAGUID.
+	var (
+		certAAGUID []byte
+		critical   bool
+	)
 
-	for _, extension := range attestnCert.Extensions {
-		if extension.Id.Equal(oidFIDOGenCeAAGUID) {
-			if extension.Critical {
-				return "", x5c, ErrInvalidAttestation.WithDetails("Attestation certificate FIDO extension marked as critical")
-			}
-
-			foundAAGUID = extension.Value
-		}
+	if certAAGUID, critical, _, err = attestationCertAAGUID(attestnCert); critical {
+		return "", x5c, ErrInvalidAttestation.WithDetails("Attestation certificate FIDO extension marked as critical")
+	} else if err != nil {
+		return "", x5c, ErrInvalidAttestation.WithDetails("Error unmarshalling AAGUID from certificate")
 	}
 
-	// We validate the AAGUID as mentioned above
-	// This is not well defined in§8.2.1 but mentioned in step 2.3: we validate the AAGUID if it is present within the certificate
-	// and make sure it matches the auth data AAGUID
-	// Note that an X.509 Extension encodes the DER-encoding of the value in an OCTET STRING. Thus, the
-	// AAGUID MUST be wrapped in two OCTET STRINGS to be valid.
-	if len(foundAAGUID) > 0 {
-		var unMarshalledAAGUID []byte
-
-		if _, err = asn1.Unmarshal(foundAAGUID, &unMarshalledAAGUID); err != nil {
-			return "", x5c, ErrInvalidAttestation.WithDetails("Error unmarshalling AAGUID from certificate")
-		}
-
-		if !bytes.Equal(aaguid, unMarshalledAAGUID) {
-			return "", x5c, ErrInvalidAttestation.WithDetails("Certificate AAGUID does not match Auth Data certificate")
-		}
+	if len(certAAGUID) > 0 && !bytes.Equal(aaguid, certAAGUID) {
+		return "", x5c, ErrInvalidAttestation.WithDetails("Certificate AAGUID does not match Auth Data certificate")
 	}
 
 	// Step 2.2.4 The Basic Constraints extension MUST have the CA component set to false.
@@ -206,8 +195,8 @@ func handleECDAAAttestation(sig, clientDataHash, ecdaaKeyID []byte, _ metadata.P
 	return "Packed (ECDAA)", nil, ErrNotSpecImplemented
 }
 
-func handleSelfAttestation(alg int64, pubKey, authData, clientDataHash, sig []byte, _ metadata.Provider) (attestationType string, x5cs []any, err error) {
-	verificationData := append(authData, clientDataHash...) //nolint:gocritic // This is intentional.
+func handleSelfAttestation(alg int64, pubKey, authData, clientDataHash, sig []byte, _ metadata.Provider, policy SignaturePolicy) (attestationType string, x5cs []any, err error) {
+	verificationData := slices.Concat(authData, clientDataHash)
 
 	var (
 		key   any
@@ -227,7 +216,12 @@ func handleSelfAttestation(alg int64, pubKey, authData, clientDataHash, sig []by
 	case webauthncose.RSAPublicKeyData:
 		err = verifyKeyAlgorithm(k.Algorithm, alg)
 	default:
-		return "", nil, ErrInvalidAttestation.WithDetails("Error verifying the public key data")
+		keyAlgorithm, ok := akpKeyAlgorithm(key)
+		if !ok {
+			return "", nil, ErrInvalidAttestation.WithDetails("Error verifying the public key data")
+		}
+
+		err = verifyKeyAlgorithm(keyAlgorithm, alg)
 	}
 
 	if err != nil {
@@ -236,7 +230,7 @@ func handleSelfAttestation(alg int64, pubKey, authData, clientDataHash, sig []by
 
 	// §4.2 Verify that sig is a valid signature over the concatenation of authenticatorData and
 	// clientDataHash using the credential public key with alg.
-	if valid, err = webauthncose.VerifySignature(key, verificationData, sig); err != nil {
+	if valid, err = keyVerifySignature(key, verificationData, sig, policy); err != nil {
 		return "", nil, ErrAttestationFormat.WithDetails(fmt.Sprintf("Error verifying the signature: %+v", err)).WithError(err)
 	} else if !valid {
 		return "", nil, ErrInvalidAttestation.WithDetails("Unable to verify signature")

@@ -42,11 +42,12 @@ type AuthenticatorResponse struct {
 //
 // Specification: §6.1. Authenticator Data (https://www.w3.org/TR/webauthn/#sctn-authenticator-data)
 type AuthenticatorData struct {
-	RPIDHash []byte                 `json:"rpid"`
-	Flags    AuthenticatorFlags     `json:"flags"`
-	Counter  uint32                 `json:"sign_count"`
-	AttData  AttestedCredentialData `json:"att_data"`
-	ExtData  []byte                 `json:"ext_data"`
+	RPIDHash []byte                         `json:"rpid"`
+	Flags    AuthenticatorFlags             `json:"flags"`
+	Counter  uint32                         `json:"sign_count"`
+	AttData  AttestedCredentialData         `json:"att_data"`
+	ExtData  []byte                         `json:"ext_data"`
+	Ext      *AuthenticatorExtensionOutputs `json:"ext,omitempty"`
 }
 
 // AttestedCredentialData is a variable-length byte array added to the authenticator data when generating an attestation
@@ -313,11 +314,12 @@ func (a *AuthenticatorData) Unmarshal(rawAuthData []byte) (err error) {
 
 	if a.Flags.HasAttestedCredentialData() {
 		if len(rawAuthData) > minAttestedAuthLength {
-			if err = a.unmarshalAttestedData(rawAuthData); err != nil {
+			var attDataLen int
+
+			if attDataLen, err = a.unmarshalAttestedData(rawAuthData); err != nil {
 				return err
 			}
 
-			attDataLen := len(a.AttData.AAGUID) + 2 + len(a.AttData.CredentialID) + len(a.AttData.CredentialPublicKey)
 			remaining -= attDataLen
 		} else {
 			return ErrBadRequest.WithDetails("Attested credential flag set but data is missing")
@@ -332,6 +334,10 @@ func (a *AuthenticatorData) Unmarshal(rawAuthData []byte) (err error) {
 		if remaining != 0 {
 			a.ExtData = rawAuthData[len(rawAuthData)-remaining:]
 			remaining -= len(a.ExtData)
+
+			if a.Ext, err = ParseAuthenticatorExtensionOutputs(a.ExtData); err != nil {
+				return err
+			}
 		} else {
 			return ErrBadRequest.WithDetails("Extensions flag set but extensions data is missing")
 		}
@@ -344,42 +350,49 @@ func (a *AuthenticatorData) Unmarshal(rawAuthData []byte) (err error) {
 	return nil
 }
 
-// If Attestation Data is present, unmarshall that into the appropriate public key structure.
-func (a *AuthenticatorData) unmarshalAttestedData(rawAuthData []byte) (err error) {
+// If Attestation Data is present, unmarshall that into the appropriate public key structure. Returns the number of
+// bytes of rawAuthData which the attested credential data occupied, measured from the start of the AAGUID.
+func (a *AuthenticatorData) unmarshalAttestedData(rawAuthData []byte) (n int, err error) {
 	a.AttData.AAGUID = rawAuthData[37:53]
 
-	idLength := binary.BigEndian.Uint16(rawAuthData[53:55])
-	if len(rawAuthData) < int(55+idLength) {
-		return ErrBadRequest.WithDetails("Authenticator attestation data length too short")
-	}
+	idLength := int(binary.BigEndian.Uint16(rawAuthData[53:55]))
 
 	if idLength > maxCredentialIDLength {
-		return ErrBadRequest.WithDetails("Authenticator attestation data credential id length too long")
+		return 0, ErrBadRequest.WithDetails("Authenticator attestation data credential id length too long")
+	}
+
+	if len(rawAuthData) < 55+idLength {
+		return 0, ErrBadRequest.WithDetails("Authenticator attestation data length too short")
 	}
 
 	a.AttData.CredentialID = rawAuthData[55 : 55+idLength]
 
-	a.AttData.CredentialPublicKey, err = unmarshalCredentialPublicKey(rawAuthData[55+idLength:])
-	if err != nil {
-		return ErrBadRequest.WithDetails(fmt.Sprintf("Could not unmarshal Credential Public Key: %v", err)).WithError(err)
+	var keyLength int
+
+	if a.AttData.CredentialPublicKey, keyLength, err = unmarshalCredentialPublicKey(rawAuthData[55+idLength:]); err != nil {
+		return 0, ErrBadRequest.WithDetails(fmt.Sprintf("Could not unmarshal Credential Public Key: %v", err)).WithError(err)
 	}
 
-	return nil
+	// The AAGUID is 16 bytes and the credential id length prefix is 2 bytes.
+	return 16 + 2 + idLength + keyLength, nil
 }
 
-// Unmarshall the credential's Public Key into CBOR encoding.
-func unmarshalCredentialPublicKey(keyBytes []byte) (rawBytes []byte, err error) {
+// Unmarshall the credential's Public Key into CBOR encoding. Returns the re-encoded key alongside the number of bytes
+// of keyBytes which the key occupied on the wire. These lengths are not necessarily equal as the CTAP2 canonical form
+// produced by Marshal may be longer or shorter than the form which was decoded, so the consumed length must be used
+// when locating any data which follows the key.
+func unmarshalCredentialPublicKey(keyBytes []byte) (rawBytes []byte, n int, err error) {
 	var m any
 
-	if err = webauthncbor.Unmarshal(keyBytes, &m); err != nil {
-		return nil, err
+	if n, err = webauthncbor.UnmarshalFirst(keyBytes, &m); err != nil {
+		return nil, 0, err
 	}
 
 	if rawBytes, err = webauthncbor.Marshal(m); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	return rawBytes, nil
+	return rawBytes, n, nil
 }
 
 // ResidentKeyRequired - Require that the key be private key resident to the client device.
@@ -397,12 +410,30 @@ func ResidentKeyNotRequired() *bool {
 
 // Verify on AuthenticatorData handles Steps 13 through 15 & 17 for Registration
 // and Steps 15 through 18 for Assertion.
+//
+// A non-empty appIDHash replaces rpIdHash as the sole expected value rather than being accepted alongside it. It must
+// therefore only be supplied when the FIDO AppID Extension was requested by the Relying Party and the client reported
+// having acted on it, which for an assertion is what [ParsedPublicKeyCredential.GetAppID] determines from the session
+// data. Callers with no appid in play, such as registration, pass nil.
+//
+// Specification: §10.1.1. FIDO AppID Extension (https://www.w3.org/TR/webauthn-3/#sctn-appid-extension)
 func (a *AuthenticatorData) Verify(rpIdHash []byte, appIDHash []byte, userVerificationRequired bool, userPresenceRequired bool) (err error) {
 	// Registration Step 13 & Assertion Step 15
 	// Verify that the RP ID hash in authData is indeed the SHA-256
 	// hash of the RP ID expected by the RP.
-	if !bytes.Equal(a.RPIDHash, rpIdHash) && !bytes.Equal(a.RPIDHash, appIDHash) {
-		return ErrVerification.WithInfo(fmt.Sprintf("RP Hash mismatch. Expected %x and Received %x", a.RPIDHash, rpIdHash))
+	//
+	// The appid client extension output being true means the assertion was scoped to the AppID, so §10.1.1 requires
+	// the Relying Party to expect the hash of the AppID and not the hash of the RP ID. Accepting either would let a
+	// client claim the extension was used while returning an assertion scoped to the RP ID, and would also make an
+	// unset appIDHash an all zero hash the authenticator could match.
+	expected := rpIdHash
+
+	if len(appIDHash) != 0 {
+		expected = appIDHash
+	}
+
+	if !bytes.Equal(a.RPIDHash, expected) {
+		return ErrVerification.WithInfo(fmt.Sprintf("RP Hash mismatch. Expected %x and Received %x", expected, a.RPIDHash))
 	}
 
 	// Registration Step 15 & Assertion Step 16

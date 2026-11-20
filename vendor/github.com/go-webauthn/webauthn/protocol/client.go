@@ -36,6 +36,12 @@ type CollectedClientData struct {
 	CrossOrigin bool `json:"crossOrigin,omitempty"`
 
 	// TokenBinding contains information about the state of the Token Binding protocol.
+	//
+	// WebAuthn Level 3 removes this member from the CollectedClientData dictionary. It is retained because a client
+	// implementing Level 1 or Level 2 may still include it, and a member present in the client data has to be
+	// modelled to be validated; it is not something a Relying Party should expect to receive.
+	//
+	// Deprecated: removed from the CollectedClientData dictionary by WebAuthn Level 3.
 	TokenBinding *TokenBinding `json:"tokenBinding,omitempty"`
 
 	// Hint is an opaque field that may be added by the client. Chromium-based browsers include this field to remind
@@ -60,12 +66,18 @@ const (
 // Relying Party. Its absence indicates that the client doesn't support token binding.
 //
 // Specification: §5.8.1. Client Data Used in WebAuthn Signatures (https://www.w3.org/TR/webauthn/#dom-collectedclientdata-tokenbinding)
+//
+// Deprecated: WebAuthn Level 3 removes the tokenBinding member from the CollectedClientData dictionary; see
+// [CollectedClientData.TokenBinding].
 type TokenBinding struct {
 	Status TokenBindingStatus `json:"status"`
 	ID     string             `json:"id,omitempty"`
 }
 
 // TokenBindingStatus represents the state of Token Binding between the client and the Relying Party.
+//
+// Deprecated: WebAuthn Level 3 removes the tokenBinding member from the CollectedClientData dictionary; see
+// [CollectedClientData.TokenBinding].
 type TokenBindingStatus string
 
 const (
@@ -79,12 +91,21 @@ const (
 
 	// NotSupported indicates token binding not supported
 	// when communicating with the Relying Party.
+	//
+	// This value is accepted but has not been a member of the TokenBindingStatus enumeration since WebAuthn Level 1,
+	// which is why it is not rejected: a client which still sends it is behaving as an older level of the
+	// specification allowed, and failing the ceremony over an advisory member would serve no purpose.
 	NotSupported TokenBindingStatus = "not-supported"
 )
 
 // FullyQualifiedOrigin returns the origin per the HTML spec: (scheme)://(host)[:(port)].
+//
+// A known opaque origin which carries no authority component, i.e. one a client conveys for a native application such
+// as 'android:apk-key-hash:...' or the origin of a document loaded from the local file system, has no such
+// serialization and is returned unaltered so it can be compared byte for byte. The opaque origins which do carry an
+// authority, such as the origin of a browser extension, are serialized in the usual way.
 func FullyQualifiedOrigin(rawOrigin string) (fqOrigin string, err error) {
-	if strings.HasPrefix(rawOrigin, "android:apk-key-hash:") {
+	if isOpaqueOriginWithoutAuthority(rawOrigin) {
 		return rawOrigin, nil
 	}
 
@@ -111,8 +132,14 @@ func FullyQualifiedOrigin(rawOrigin string) (fqOrigin string, err error) {
 // Note: the rpTopOriginsVerify parameter does not accept the TopOriginVerificationMode value of
 // TopOriginDefaultVerificationMode as it's expected this value is updated by the config validation process.
 //
+// The rpOpaqueOrigins parameter carries the origins which are not http or https tuple origins, i.e. those for which
+// [IsOpaqueOrigin] returns true. They widen the set the ceremony origin is matched against, and only that set; the
+// Top Origin is deliberately never matched against them as a Top Origin is by definition the origin of a top-level
+// browsing context. They are matched by [IsOpaqueOriginInHaystack], i.e. by simple string comparison, never by the
+// origin equality semantics applied to the rpOrigins parameter.
+//
 //nolint:gocyclo
-func (c *CollectedClientData) Verify(storedChallenge string, ceremony CeremonyType, rpOrigins, rpTopOrigins []string, rpTopOriginsVerify TopOriginVerificationMode, allowCrossOrigin bool) (err error) {
+func (c *CollectedClientData) Verify(storedChallenge string, ceremony CeremonyType, rpOrigins, rpOpaqueOrigins, rpTopOrigins []string, rpTopOriginsVerify TopOriginVerificationMode, allowCrossOrigin bool) (err error) {
 	// Registration Step 3. Verify that the value of C.type is webauthn.create.
 
 	// Assertion Step 7. Verify that the value of C.type is the string webauthn.get.
@@ -137,10 +164,18 @@ func (c *CollectedClientData) Verify(storedChallenge string, ceremony CeremonyTy
 	// Registration Step 5 & Assertion Step 9. Verify that the value of C.origin matches
 	// the Relying Party's origin.
 
-	if !IsOriginInHaystack(c.Origin, rpOrigins) {
+	if !IsOriginInHaystack(c.Origin, rpOrigins) && !IsOpaqueOriginInHaystack(c.Origin, rpOpaqueOrigins) {
+		possibleOrigins := rpOrigins
+
+		if len(rpOpaqueOrigins) != 0 {
+			possibleOrigins = make([]string, 0, len(rpOrigins)+len(rpOpaqueOrigins))
+			possibleOrigins = append(possibleOrigins, rpOrigins...)
+			possibleOrigins = append(possibleOrigins, rpOpaqueOrigins...)
+		}
+
 		return ErrVerification.
 			WithDetails("Error validating origin").
-			WithInfo(fmt.Sprintf("Expected Values: %s, Received: %s", rpOrigins, c.Origin))
+			WithInfo(fmt.Sprintf("Expected Values: %s, Received: %s", possibleOrigins, c.Origin))
 	}
 
 	if !allowCrossOrigin && c.CrossOrigin {
@@ -269,6 +304,26 @@ func IsOriginInHaystack(needle string, haystack []string) bool {
 			if needle == hay {
 				return true
 			}
+		}
+	}
+
+	return false
+}
+
+// IsOpaqueOriginInHaystack checks if the needle is in the haystack of opaque origins, i.e. the origins for which
+// [IsOpaqueOrigin] returns true, using simple string comparison as defined in RFC3986 Section 6.2.1.
+//
+// This is deliberately not [IsOriginInHaystack]: an opaque origin has no scheme and host to normalize, so there is no
+// case folding and no port normalization to apply to it, and the value a client conveys for one is compared byte for
+// byte or not at all. Routing the opaque origins through this function rather than through [IsOriginInHaystack] keeps
+// that true of a value which merely resembles a URL, such as an http origin which has no host or whose port is out of
+// range; both are opaque, and neither may be matched with the leniency an origin with a host is matched with.
+//
+// See (Simple String Comparison Definition): https://datatracker.ietf.org/doc/html/rfc3986#section-6.2.1
+func IsOpaqueOriginInHaystack(needle string, haystack []string) bool {
+	for _, hay := range haystack {
+		if needle == hay {
+			return true
 		}
 	}
 

@@ -91,8 +91,9 @@ func (s *UserStore) Create(user passkey.NewUser) (passkey.User, error) {
 		Name:  user.Username,
 		creds: []webauthn.Credential{user.Credential},
 	}
-	s.users[user.Username] = u.snapshot()
-	return u, nil
+	stored := u.snapshot()
+	s.users[user.Username] = stored
+	return stored.snapshot(), nil
 }
 
 type SessionStore[T any] struct {

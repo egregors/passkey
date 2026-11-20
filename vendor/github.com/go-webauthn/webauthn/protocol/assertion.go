@@ -1,12 +1,14 @@
 package protocol
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 
 	"github.com/go-webauthn/webauthn/protocol/webauthncose"
 )
@@ -102,12 +104,26 @@ func (car CredentialAssertionResponse) Parse() (par *ParsedCredentialAssertionDa
 		return nil, ErrBadRequest.WithDetails("CredentialAssertionResponse with ID missing")
 	}
 
-	if _, err = base64.RawURLEncoding.DecodeString(car.ID); err != nil {
+	var rawID []byte
+
+	if rawID, err = base64.RawURLEncoding.DecodeString(car.ID); err != nil {
 		return nil, ErrBadRequest.WithDetails("CredentialAssertionResponse with ID not base64url encoded").WithError(err)
+	}
+
+	// The decoder skips CR and LF, so an id composed only of them decodes to no bytes rather than failing above. A
+	// credential id is at least one byte, and the registration path already rejects a zero length decode here.
+	if len(rawID) == 0 {
+		return nil, ErrBadRequest.WithDetails("CredentialAssertionResponse with ID that decodes to no bytes")
 	}
 
 	if car.Type != string(PublicKeyCredentialType) {
 		return nil, ErrBadRequest.WithDetails("CredentialAssertionResponse with bad type")
+	}
+
+	// The id member is defined as the base64url encoding of rawId. Every step below this one uses rawId, so a
+	// disagreement between the two would otherwise be silently resolved in favour of rawId.
+	if !bytes.Equal(rawID, car.RawID) {
+		return nil, ErrBadRequest.WithDetails("CredentialAssertionResponse with ID that does not match the rawId")
 	}
 
 	var attachment AuthenticatorAttachment
@@ -145,14 +161,14 @@ func (car CredentialAssertionResponse) Parse() (par *ParsedCredentialAssertionDa
 // documentation. It's important to note that the credentialBytes field is the CBOR representation of the credential.
 //
 // Specification: §7.2 Verifying an Authentication Assertion (https://www.w3.org/TR/webauthn/#sctn-verifying-assertion)
-func (p *ParsedCredentialAssertionData) Verify(storedChallenge string, relyingPartyID, appID string, rpOrigins, rpTopOrigins []string, rpTopOriginsVerify TopOriginVerificationMode, allowCrossOrigin, verifyUser, verifyUserPresence bool, credentialBytes []byte) error {
+func (p *ParsedCredentialAssertionData) Verify(storedChallenge string, relyingPartyID, appID string, rpOrigins, rpOpaqueOrigins, rpTopOrigins []string, rpTopOriginsVerify TopOriginVerificationMode, allowCrossOrigin, verifyUser, verifyUserPresence bool, credentialBytes []byte, signature SignaturePolicy) error {
 	// Steps 4 through 6 in verifying the assertion data (https://www.w3.org/TR/webauthn/#verifying-assertion) are
 	// "assertive" steps, i.e. "Let JSONtext be the result of running UTF-8 decode on the value of cData."
 	// We handle these steps in part as we verify but also beforehand
 	//
 	// Handle steps 7 through 10 of assertion by verifying stored data against the Collected Client Data
 	// returned by the authenticator.
-	validError := p.Response.CollectedClientData.Verify(storedChallenge, AssertCeremony, rpOrigins, rpTopOrigins, rpTopOriginsVerify, allowCrossOrigin)
+	validError := p.Response.CollectedClientData.Verify(storedChallenge, AssertCeremony, rpOrigins, rpOpaqueOrigins, rpTopOrigins, rpTopOriginsVerify, allowCrossOrigin)
 	if validError != nil {
 		return validError
 	}
@@ -160,13 +176,19 @@ func (p *ParsedCredentialAssertionData) Verify(storedChallenge string, relyingPa
 	// Begin Step 11. Verify that the rpIdHash in authData is the SHA-256 hash of the RP ID expected by the RP.
 	rpIDHash := sha256.Sum256([]byte(relyingPartyID))
 
-	var appIDHash [32]byte
+	// The appid is only non-empty when the Relying Party requested the FIDO AppID Extension and the client reported
+	// having acted on it; see [ParsedPublicKeyCredential.GetAppID], which derives it from the session data. In that
+	// case §10.1.1 requires the AppID hash to be the expected rpIdHash in place of the RP ID hash, so the hash is
+	// left nil rather than zeroed when the extension does not apply.
+	var appIDHash []byte
+
 	if appID != "" {
-		appIDHash = sha256.Sum256([]byte(appID))
+		sum := sha256.Sum256([]byte(appID))
+		appIDHash = sum[:]
 	}
 
 	// Handle steps 11 through 14, verifying the authenticator data.
-	validError = p.Response.AuthenticatorData.Verify(rpIDHash[:], appIDHash[:], verifyUser, verifyUserPresence)
+	validError = p.Response.AuthenticatorData.Verify(rpIDHash[:], appIDHash, verifyUser, verifyUserPresence)
 	if validError != nil {
 		return validError
 	}
@@ -177,7 +199,7 @@ func (p *ParsedCredentialAssertionData) Verify(storedChallenge string, relyingPa
 	// Step 16. Using the credential public key looked up in step 3, verify that sig is
 	// a valid signature over the binary concatenation of authData and hash.
 
-	sigData := append(p.Raw.AssertionResponse.AuthenticatorData, clientDataHash[:]...) //nolint:gocritic // This is intentional.
+	sigData := slices.Concat(p.Raw.AssertionResponse.AuthenticatorData, clientDataHash[:])
 
 	var (
 		key any
@@ -196,7 +218,7 @@ func (p *ParsedCredentialAssertionData) Verify(storedChallenge string, relyingPa
 		return ErrAssertionSignature.WithDetails(fmt.Sprintf("Error parsing the assertion public key: %+v", err)).WithError(err)
 	}
 
-	valid, err := webauthncose.VerifySignature(key, sigData, p.Response.Signature)
+	valid, err := keyVerifySignature(key, sigData, p.Response.Signature, signature)
 	if !valid || err != nil {
 		return ErrAssertionSignature.WithDetails(fmt.Sprintf("Error validating the assertion signature: %+v", err)).WithError(err)
 	}

@@ -50,15 +50,50 @@
 //
 // # Relying Party Usage
 //
-// This library hadnles the relying party server-side concerns. The browser or other user agent is responsible for
-// handling the JSON responses from this library and translating them for the WebAUthn API appropriately. There are two
+// This library handles the relying party server-side concerns. The browser or other user agent is responsible for
+// handling the JSON responses from this library and translating them for the WebAuthn API appropriately. There are two
 // primary ways to handle this other than doing so manually:
 //
-//   1. Using a client side library like [@simplewebauthn/browser].
-//   2. Some browsers support the [parseCreationOptionsFromJSON] static method on the WebAuthn object.
+//  1. Using a client side library like [@simplewebauthn/browser].
+//  2. Some browsers support the [parseCreationOptionsFromJSON] static method on the WebAuthn object.
 //
-// [parseCreationOptionsFromJSON]: https://developer.mozilla.org/en-US/docs/Web/API/PublicKeyCredential/parseCreationOptionsFromJSON_static
-// [@simplewebauthn/browser]: https://simplewebauthn.dev/docs/packages/browser
+// # Origin Binding
+//
+// The origin of a ceremony response is verified against every origin in [Config.RPOrigins], which is what allows one
+// relying party to serve several of them. A relying party which knows the origin a particular ceremony was begun at can
+// narrow that to the one origin with [WithRegistrationOrigin] or [WithLoginOrigin], so a response collected at another
+// of its origins does not complete the ceremony. The bound value is recorded in [SessionData.Origin] and must be one of
+// the configured origins.
+//
+// # Extensions
+//
+// Extension inputs are requested with [WithExtensions] for a registration ceremony and [WithAssertionExtensions]
+// for an authentication ceremony, each taking one or more [ExtensionOption] values such as
+// [WithExtensionCredProps] or [WithExtensionPRF]. An identifier this library does not model is set with
+// [WithExtension], which carries the value to the client verbatim; [protocol.ExtensionLargeBlobKey] is a
+// deliberate example of such an identifier, see its documentation for why it has no dedicated option.
+//
+// The subset of the inputs required to verify the responses is recorded in [SessionData], specifically its
+// [protocol.SessionExtensions] member. This includes the list of extension identifiers that were requested: by
+// default a client extension output the relying party did not request fails the ceremony, so a relying party
+// which reconstructs [SessionData] by hand rather than persisting the value returned by the Begin functions
+// verbatim will see legitimate outputs rejected. See [Config.ExtensionsUnsolicitedOutputPolicy] to relax this.
+//
+// That check covers client extension outputs ([protocol.AuthenticationExtensionsClientOutputs]) only. Authenticator
+// extension outputs decoded from the authenticator data ([protocol.AuthenticatorData.Ext]) are never checked
+// against what was requested, deliberately: CTAP authenticators routinely return credProtect unsolicited because
+// they apply a default protection policy of their own, and rejecting an unsolicited authenticator output would
+// fail otherwise-conforming hardware rather than a misbehaving client.
+//
+// Extension results which remain meaningful for the life of a credential, such as whether it is discoverable, are
+// recorded on [Credential.Extensions] and should be persisted with it. Pseudo-random function results are secrets
+// and are never recorded.
+//
+// A JSON extension member whose key differs from a modelled name only by case (e.g. "AppID" for "appid") is bound
+// to the modelled field by encoding/json before this library ever sees the untyped member map; if the value has
+// the wrong type for that field the whole response fails to parse, rather than the member falling back to the
+// extension's Extra map. See [protocol.AuthenticationExtensions] and [protocol.AuthenticationExtensionsClientOutputs]
+// for details.
 //
 // # Storage
 //
@@ -87,6 +122,22 @@
 // One persistence shape is supported for the [SessionData] struct which is to store it as bytes via encoding/json or
 // using MessagePack as bytes in whatever storage system you're using for user sessions. This data MUST be definitively
 // anchored to a user's active session, and it must be restored between the ceremony steps.
+//
+// The serialized shape of [SessionData.Extensions] changes across releases whenever the extensions this library
+// models change, in both its JSON and MessagePack encodings. A [SessionData] value serialized by an older release
+// will not decode cleanly after such an upgrade, so in-flight sessions must be drained or invalidated as part of
+// the deployment rather than carried across it.
+//
+// Whichever encoding is used, the bytes handed back to the decoder MUST be bytes this library serialized and which the
+// Relying Party has kept integrity protected at rest and in transit. This matters most for the MessagePack decoders:
+// the generated UnmarshalMsg and DecodeMsg methods size their allocations directly from the array and map length
+// prefixes on the wire, before the rest of the payload is read, so a handful of malformed bytes can be enough to make
+// the process allocate gigabytes and be killed. The length limits offered by the msgp reader are at best a partial
+// mitigation and cannot be relied on as a substitute: SetMaxElements bounds the bin payloads the generated DecodeMsg
+// allocates, but it does not bound the array and map length prefixes that same code sizes its slices from, and it does
+// not apply at all to the slice based UnmarshalMsg, which takes no reader. Restoring a record which the client was
+// able to modify is in any case already fatal to the ceremony, as the challenge and User Handle would then be
+// attacker chosen.
 //
 // Regardless of which shape is chosen, the following values MUST be persisted as their own columns so records
 // can be located and scoped correctly without first decoding attestation or key material. The User Handle in
@@ -119,8 +170,8 @@
 //     value emitted to authenticators, whereas the application user identifier is your schema's primary
 //     key for the user. Keeping the two as separate columns lets you resolve from either direction.
 //
-// A minimal PostgreSQL schema covering the above plus the remaining [Credential], [Authenticator], and
-// [CredentialAttestation] fields is shown below.
+// A minimal PostgreSQL schema covering the above plus the remaining [Credential], [Authenticator],
+// [CredentialAttestation], and [CredentialExtensions] fields is shown below.
 //
 // Example users table:
 //
@@ -146,8 +197,8 @@
 //	    kid                      BYTEA        NOT NULL, -- Credential.ID
 //	    aaguid                   BYTEA        NULL, -- Authenticator.AAGUID
 //	    public_key               BYTEA        NOT NULL, -- Credential.PublicKey (encrypt at rest)
-//	    attestation_type         VARCHAR(32)  NOT NULL, -- CredentialAttestation.AttestationType
-//	    attestation_format       VARCHAR(32)  NOT NULL, -- CredentialAttestation.AttestationFormat
+//	    attestation_type         VARCHAR(32)  NOT NULL, -- Credential.AttestationType
+//	    attestation_format       VARCHAR(32)  NOT NULL, -- Credential.AttestationFormat
 //	    attestation              BYTEA        NULL DEFAULT NULL, -- CredentialAttestation serialized as Message Pack or JSON (encrypt at rest)
 //	    transport                VARCHAR(64)  NOT NULL DEFAULT '', -- Credential.Transport serialized as a comma-separated value
 //	    sign_count               BIGINT       NOT NULL DEFAULT 0, -- Authenticator.SignCount
@@ -157,7 +208,8 @@
 //	    present                  BOOLEAN      NOT NULL DEFAULT FALSE, -- Flags.UserPresent, optionally stored so you can either display it to the user or for filtering credentials
 //	    verified                 BOOLEAN      NOT NULL DEFAULT FALSE, -- Flags.UserVerified, optionally stored so you can either display it to the user or for filtering credentials
 //	    backup_eligible          BOOLEAN      NOT NULL DEFAULT FALSE, -- Flags.BackupEligible, optionally stored so you can either display it to the user or for filtering credentials
-//	    backup_state             BOOLEAN      NOT NULL DEFAULT FALSE -- Flags.BackupState, optionally stored so you can either display it to the user or for filtering credentials
+//	    backup_state             BOOLEAN      NOT NULL DEFAULT FALSE, -- Flags.BackupState, optionally stored so you can either display it to the user or for filtering credentials
+//	    extensions               BYTEA        NULL DEFAULT NULL -- Credential.Extensions serialized as Message Pack or JSON; the durable extension results of the registration ceremony
 //	);
 //
 //	CREATE UNIQUE INDEX webauthn_credentials_kid_key ON webauthn_credentials (rpid, kid);
@@ -172,9 +224,12 @@
 //     RP ID to resolve the application user id, then load that user's credentials from
 //     `webauthn_credentials`.
 //
-// Fields that change across assertions; [Authenticator.SignCount], [Authenticator.CloneWarning], and
-// [CredentialFlags.BackupState] when [CredentialFlags.BackupEligible] is true MUST be written back to storage
-// on every successful FinishLogin / ValidateLogin so the next ceremony observes the current values.
+// Fields that change across assertions; [Authenticator.SignCount], [Authenticator.CloneWarning],
+// [CredentialFlags.UserVerified], and [CredentialFlags.BackupState] when [CredentialFlags.BackupEligible] is true
+// MUST be written back to storage on every successful FinishLogin / ValidateLogin so the next ceremony observes the
+// current values. [CredentialFlags.UserVerified] is the specification's uvInitialized and only ever advances from
+// false to true, so a Relying Party which does not write it back can never record that the credential has verified
+// its user. After registration it only advances during a login begun with [WithLoginAuthorizeUVInitialization].
 //
 // For [SessionData] stored in a database (rather than a server-side session store), use the same persistence
 // shapes described above. The User Handle on a [SessionData] row is per-session ceremony state rather than
@@ -182,4 +237,7 @@
 // rule applies to [Credential] storage, not to [SessionData]. Additionally index the challenge (unique) and
 // the expiry timestamp so sessions can be looked up by challenge at Finish time and expired rows reaped
 // cheaply. Stored sessions must only be consumed by a Finish call operating under the same RP ID.
+//
+// [parseCreationOptionsFromJSON]: https://developer.mozilla.org/en-US/docs/Web/API/PublicKeyCredential/parseCreationOptionsFromJSON_static
+// [@simplewebauthn/browser]: https://simplewebauthn.dev/docs/packages/browser
 package webauthn

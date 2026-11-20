@@ -13,6 +13,12 @@ import (
 )
 
 func testCredential() webauthn.Credential {
+	rk := true
+	minPin := uint(4)
+	prf := true
+	largeBlob := true
+	hmac := true
+	credBlob := true
 	return webauthn.Credential{
 		ID: []byte("key"), PublicKey: []byte("public key"),
 		Transport:     []protocol.AuthenticatorTransport{protocol.USB},
@@ -20,6 +26,14 @@ func testCredential() webauthn.Credential {
 		Attestation: webauthn.CredentialAttestation{
 			ClientDataJSON: []byte("client data"), ClientDataHash: []byte("hash"),
 			AuthenticatorData: []byte("auth data"), Object: []byte("attestation"),
+		},
+		Extensions: webauthn.CredentialExtensions{
+			RK:                 &rk,
+			MinPinLength:       &minPin,
+			PRFEnabled:         &prf,
+			LargeBlobSupported: &largeBlob,
+			HMACSecret:         &hmac,
+			CredBlobSet:        &credBlob,
 		},
 	}
 }
@@ -70,6 +84,12 @@ func TestUserStoreDetachedSnapshots(t *testing.T) {
 	require.NoError(t, err)
 	input.UserID[0] = 'x'
 	input.Credential.PublicKey[0] = 'x'
+	*input.Credential.Extensions.RK = false
+	*input.Credential.Extensions.MinPinLength = 9
+	*input.Credential.Extensions.PRFEnabled = false
+	*input.Credential.Extensions.LargeBlobSupported = false
+	*input.Credential.Extensions.HMACSecret = false
+	*input.Credential.Extensions.CredBlobSet = false
 	for _, snapshot := range []passkey.User{created, byID, byName} {
 		snapshot.WebAuthnID()[0] = 'x'
 		c := &snapshot.WebAuthnCredentials()[0]
@@ -81,6 +101,12 @@ func TestUserStoreDetachedSnapshots(t *testing.T) {
 		c.Attestation.ClientDataHash[0] = 'x'
 		c.Attestation.AuthenticatorData[0] = 'x'
 		c.Attestation.Object[0] = 'x'
+		*c.Extensions.RK = false
+		*c.Extensions.MinPinLength = 9
+		*c.Extensions.PRFEnabled = false
+		*c.Extensions.LargeBlobSupported = false
+		*c.Extensions.HMACSecret = false
+		*c.Extensions.CredBlobSet = false
 	}
 	stored, err := store.Get([]byte("user"))
 	require.NoError(t, err)

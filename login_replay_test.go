@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/fxamacker/cbor/v2"
+	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -161,7 +162,11 @@ func newLoginReplayFixture(t *testing.T) *loginReplayFixture {
 	user := NewMockUser(t)
 	user.On("WebAuthnID").Return(uid)
 	user.On("WebAuthnName").Return("replay-user").Maybe()
-	user.On("WebAuthnCredentials").Return([]webauthn.Credential{{ID: cid, PublicKey: key}})
+	user.On("WebAuthnCredentials").Return([]webauthn.Credential{{
+		ID:        cid,
+		PublicKey: key,
+		Flags:     webauthn.NewCredentialFlags(protocol.FlagUserPresent | protocol.FlagUserVerified),
+	}})
 	users := NewMockUserStore(t)
 	loginSessions := &loginReplayStore[webauthn.SessionData]{data: make(map[string]webauthn.SessionData)}
 	authSessions := &loginReplayStore[UserSessionData]{data: make(map[string]UserSessionData)}

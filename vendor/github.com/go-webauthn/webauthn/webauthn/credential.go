@@ -13,6 +13,7 @@ import (
 //go:generate msgp
 
 //msgp:replace protocol.AuthenticatorTransport with:string
+//msgp:replace protocol.CredentialProtectionPolicy with:string
 //msgp:shim CredentialFlags as:byte using:(CredentialFlags).MsgpByte/CredentialFlagsFromMsgpByte
 //msgp:clearomitted
 
@@ -39,9 +40,54 @@ func NewCredential(clientDataHash []byte, c *protocol.ParsedCredentialCreationDa
 			PublicKeyAlgorithm: c.Raw.AttestationResponse.PublicKeyAlgorithm,
 			Object:             c.Raw.AttestationResponse.AttestationObject,
 		},
+		Extensions: newCredentialExtensions(c),
 	}
 
 	return credential, nil
+}
+
+// newCredentialExtensions selects the extension results worth persisting with the credential record from the
+// client and authenticator extension outputs of a registration ceremony.
+func newCredentialExtensions(c *protocol.ParsedCredentialCreationData) (extensions CredentialExtensions) {
+	outputs := c.ClientExtensionResults
+
+	if outputs.CredProps != nil && outputs.CredProps.RK != nil {
+		extensions.RK = ptr(*outputs.CredProps.RK)
+	}
+
+	if outputs.PRF != nil && outputs.PRF.Enabled != nil {
+		extensions.PRFEnabled = ptr(*outputs.PRF.Enabled)
+	}
+
+	if outputs.LargeBlob != nil && outputs.LargeBlob.Supported != nil {
+		extensions.LargeBlobSupported = ptr(*outputs.LargeBlob.Supported)
+	}
+
+	if outputs.HMACCreateSecret != nil {
+		extensions.HMACSecret = ptr(*outputs.HMACCreateSecret)
+	}
+
+	if ext := c.Response.AttestationObject.AuthData.Ext; ext != nil {
+		if ext.CredProtect != nil {
+			extensions.CredProtect = *ext.CredProtect
+		}
+
+		if ext.MinPinLength != nil {
+			extensions.MinPinLength = ptr(*ext.MinPinLength)
+		}
+
+		if ext.CredBlobSet != nil {
+			extensions.CredBlobSet = ptr(*ext.CredBlobSet)
+		}
+
+		// The authenticator output wins over the client's hmacCreateSecret because it is covered by the
+		// attestation signature; the client value assigned above stands only when the authenticator omits it.
+		if ext.HMACSecret != nil {
+			extensions.HMACSecret = ptr(*ext.HMACSecret)
+		}
+	}
+
+	return extensions
 }
 
 // Credential contains all needed information about a WebAuthn credential for storage. This struct is effectively the
@@ -93,6 +139,50 @@ type Credential struct {
 
 	// The attestation values that can be used to validate this Credential via the MDS3 at a later date.
 	Attestation CredentialAttestation `json:"attestation" msg:"att"`
+
+	// Extensions holds the durable extension results reported during the registration ceremony. It is a curated
+	// subset: PRF results are secrets and are never persisted, and blobs and keys do not belong in a credential
+	// record.
+	Extensions CredentialExtensions `json:"extensions,omitzero" msg:"ext,omitempty"`
+}
+
+// CredentialExtensions holds the extension results recorded at registration which remain meaningful for the life
+// of the credential.
+type CredentialExtensions struct {
+	// RK reports whether the credential is client-side discoverable, from the credProps extension. A false value
+	// is meaningful and distinct from the client not reporting the property.
+	RK *bool `json:"rk,omitempty" msg:"rk,omitempty"`
+
+	// CredProtect is the credential protection policy applied by the authenticator. The empty value means the
+	// authenticator did not report one.
+	CredProtect protocol.CredentialProtectionPolicy `json:"credProtect,omitempty" msg:"cp,omitempty"`
+
+	// MinPinLength is the authenticator's minimum PIN length at the time of registration.
+	MinPinLength *uint `json:"minPinLength,omitempty" msg:"mpl,omitempty"`
+
+	// PRFEnabled reports whether the pseudo-random function is available for this credential. It is populated when
+	// the registration requested the extension, typically with [WithExtensionPRFSupport].
+	PRFEnabled *bool `json:"prfEnabled,omitempty" msg:"prf,omitempty"`
+
+	// LargeBlobSupported reports whether the credential supports large blob storage.
+	LargeBlobSupported *bool `json:"largeBlobSupported,omitempty" msg:"lbs,omitempty"`
+
+	// HMACSecret reports whether the authenticator provisioned a CTAP hmac-secret for this credential, which is
+	// what determines whether requesting [WithExtensionHMACGetSecret] at authentication can succeed.
+	//
+	// The value is taken from the authenticator extension outputs where present, because those are covered by the
+	// attestation signature, and from the client's 'hmacCreateSecret' output otherwise. The two are the signed and
+	// client-reported views of one capability rather than two separate properties, so they share a field.
+	//
+	// This is a sibling of PRFEnabled rather than a duplicate of it: the pseudo-random function extension is the
+	// WebAuthn level abstraction over the same authenticator capability, and a client may report either, both, or
+	// neither depending on which extension the Relying Party requested.
+	HMACSecret *bool `json:"hmacSecret,omitempty" msg:"hs,omitempty"`
+
+	// CredBlobSet reports whether the blob submitted with [WithExtensionCredBlob] at registration was stored by
+	// the authenticator, which is what determines whether requesting [WithExtensionGetCredBlob] at authentication
+	// can return anything.
+	CredBlobSet *bool `json:"credBlobSet,omitempty" msg:"cbs,omitempty"`
 }
 
 // UnmarshalJSON decodes a [Credential] from JSON, applying a backward-compatibility migration for records produced
@@ -172,7 +262,11 @@ func (c *Credential) Descriptor() (descriptor protocol.CredentialDescriptor) {
 // pointer receiver.
 //
 // See [CredentialAttestation] for guidance on persisting these raw values securely.
-func (c *Credential) Verify(mds metadata.Provider) (err error) {
+//
+// The policy carries the Relying Party decisions which §8 leaves to the Relying Party; pass
+// [Config.Attestation] and [Config.Signature] to apply the same policies the registration ceremony applied. Their
+// zero values select the most restrictive behavior available. See [protocol.AttestationPolicy] and [protocol.SignaturePolicy].
+func (c *Credential) Verify(mds metadata.Provider, policy protocol.AttestationPolicy, signature protocol.SignaturePolicy) (err error) {
 	if mds == nil {
 		return fmt.Errorf("error verifying credential: the metadata provider must be provided but it's nil")
 	}
@@ -197,7 +291,7 @@ func (c *Credential) Verify(mds metadata.Provider) (err error) {
 		clientDataHash = sum[:]
 	}
 
-	if err = attestation.AttestationObject.VerifyAttestation(clientDataHash, mds); err != nil {
+	if err = attestation.AttestationObject.VerifyAttestation(clientDataHash, mds, policy, signature); err != nil {
 		return fmt.Errorf("error verifying credential: error verifying attestation: %w", err)
 	}
 
@@ -210,7 +304,11 @@ func (c *Credential) Verify(mds metadata.Provider) (err error) {
 
 // VerifyAttestationType is a cutdown version of Verify which only does the minimal verification to update the
 // AttestationType if it's unset. For full verification use Verify.
-func (c *Credential) VerifyAttestationType() (err error) {
+//
+// The policy carries the Relying Party decisions which §8 leaves to the Relying Party; pass
+// [Config.Attestation] and [Config.Signature] to apply the same policies the registration ceremony applied. Their
+// zero values select the most restrictive behavior available. See [protocol.AttestationPolicy] and [protocol.SignaturePolicy].
+func (c *Credential) VerifyAttestationType(policy protocol.AttestationPolicy, signature protocol.SignaturePolicy) (err error) {
 	if c.AttestationType != "" {
 		return nil
 	}
@@ -235,7 +333,7 @@ func (c *Credential) VerifyAttestationType() (err error) {
 		clientDataHash = sum[:]
 	}
 
-	if err = attestation.AttestationObject.VerifyAttestation(clientDataHash, nil); err != nil {
+	if err = attestation.AttestationObject.VerifyAttestation(clientDataHash, nil, policy, signature); err != nil {
 		return fmt.Errorf("error verifying credential: error verifying attestation: %w", err)
 	}
 
@@ -293,6 +391,48 @@ func NewCredentialFlags(flags protocol.AuthenticatorFlags) CredentialFlags {
 	}
 }
 
+// Update returns these flags advanced to the state observed during a successful assertion, which is the credential
+// record update described by §7.2, without authorization to initialize user verification. The backup state and the
+// remaining flags are taken from the assertion, while [CredentialFlags.UserVerified] is left unchanged: a credential
+// whose user has been verified keeps that recorded state even when a later assertion does not verify the user, and a
+// credential whose user has not been verified does not become verified.
+//
+// The specification only advances uvInitialized from false to true, and that change SHOULD require authorization by
+// an additional authentication factor equivalent to WebAuthn user verification; if not authorized, the step is
+// skipped. This is the unauthorized case. See [CredentialFlags.UpdateWithUVInitialization] for the authorized case.
+//
+// The user verification flag is applied to the underlying [protocol.AuthenticatorFlags] rather than only to the
+// boolean member because the raw octet is the representation the msgp encoding preserves; applying it to just the
+// member would lose it the moment the credential record is persisted.
+//
+// A Relying Party wanting to know whether a particular ceremony verified the user must read the UV flag of that
+// ceremony's authenticator data, not this value.
+//
+// Specification: §7.2. Verifying an Authentication Assertion (https://www.w3.org/TR/webauthn-3/#sctn-verifying-assertion)
+func (f CredentialFlags) Update(flags protocol.AuthenticatorFlags) CredentialFlags {
+	if f.UserVerified {
+		flags |= protocol.FlagUserVerified
+	} else {
+		flags &^= protocol.FlagUserVerified
+	}
+
+	return NewCredentialFlags(flags)
+}
+
+// UpdateWithUVInitialization is the same as [CredentialFlags.Update] except the Relying Party has authorized the
+// initialization of user verification, i.e. by an additional authentication factor equivalent to WebAuthn user
+// verification. [CredentialFlags.UserVerified] is latched: it advances from false to true when the assertion verified
+// the user, and is never reset to false.
+//
+// Specification: §7.2. Verifying an Authentication Assertion (https://www.w3.org/TR/webauthn-3/#sctn-verifying-assertion)
+func (f CredentialFlags) UpdateWithUVInitialization(flags protocol.AuthenticatorFlags) CredentialFlags {
+	if f.UserVerified {
+		flags |= protocol.FlagUserVerified
+	}
+
+	return NewCredentialFlags(flags)
+}
+
 // CredentialFlagsFromMsgpByte reconstructs a [CredentialFlags] from the single-byte representation produced by
 // [CredentialFlags.MsgpByte]. It is intended for use by the msgp-generated serialization layer; normal callers
 // should prefer [NewCredentialFlags].
@@ -307,7 +447,11 @@ type CredentialFlags struct {
 	// Flag UP indicates the users presence.
 	UserPresent bool `json:"userPresent"`
 
-	// Flag UV indicates the user performed verification.
+	// Flag UV indicates the user performed verification. On a credential record this is the uvInitialized value
+	// of the specification, which is latched: once true it stays true. It is set at registration when that ceremony
+	// verified the user, and otherwise only advances from false to true during an assertion which verified the user
+	// and which the Relying Party authorized using [WithLoginAuthorizeUVInitialization]. Read the UV flag of a
+	// ceremony's own authenticator data to determine whether that ceremony verified the user.
 	UserVerified bool `json:"userVerified"`
 
 	// Flag BE indicates the credential is able to be backed up and/or sync'd between devices. This should NEVER change.

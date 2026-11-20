@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,7 +15,9 @@ import (
 // RegistrationOption is a functional option that modifies the [protocol.PublicKeyCredentialCreationOptions] sent
 // to the client during a registration ceremony. Use the With* functions in this package (i.e.
 // [WithConveyancePreference], [WithExclusions], [WithAuthenticatorSelection]) to create registration options.
-type RegistrationOption func(*protocol.PublicKeyCredentialCreationOptions)
+//
+// An option returns an error to reject the ceremony; [WebAuthn.BeginRegistration] aborts on the first error.
+type RegistrationOption func(*protocol.PublicKeyCredentialCreationOptions) error
 
 // BeginRegistration generates a new set of registration data to be sent to the client and authenticator. To set a
 // conditional mediation requirement for the registration see [WebAuthn.BeginMediatedRegistration].
@@ -74,7 +77,9 @@ func (webauthn *WebAuthn) BeginMediatedRegistration(user User, mediation protoco
 	}
 
 	for _, opt := range opts {
-		opt(&creation.Response)
+		if err = opt(&creation.Response); err != nil {
+			return nil, nil, fmt.Errorf("error applying registration option: %w", err)
+		}
 	}
 
 	if len(creation.Response.RelyingParty.ID) == 0 {
@@ -87,8 +92,22 @@ func (webauthn *WebAuthn) BeginMediatedRegistration(user User, mediation protoco
 		return nil, nil, fmt.Errorf("error generating credential creation: the relying party display name must be provided via the configuration or a functional option for a creation")
 	}
 
+	if len(creation.Response.Origin) != 0 {
+		if err = validateCeremonyOrigin(creation.Response.Origin, webauthn.Config.RPOrigins); err != nil {
+			return nil, nil, fmt.Errorf("error generating credential creation: %w", err)
+		}
+	}
+
 	if len(creation.Response.Challenge) < protocol.MinimumChallengeLength {
 		return nil, nil, fmt.Errorf("error generating credential creation: the challenge must be at least 16 bytes")
+	}
+
+	// The user handle is validated after the options have been applied because a [RegistrationOption] receives the
+	// whole creation options and may therefore replace the user entity id derived from the [User] above, and it is
+	// the id which is actually sent to the client that has to satisfy the bounds. The session records the id of the
+	// [User] itself rather than this one, as that is what [WebAuthn.CreateCredential] is given to compare it against.
+	if err = validateUserHandle(creation.Response.User.ID); err != nil {
+		return nil, nil, fmt.Errorf("error generating credential creation: %w", err)
 	}
 
 	if creation.Response.Timeout == 0 {
@@ -100,11 +119,15 @@ func (webauthn *WebAuthn) BeginMediatedRegistration(user User, mediation protoco
 		}
 	}
 
+	normalizeCreationOptions(&creation.Response)
+
 	session = &SessionData{
 		Challenge:        creation.Response.Challenge.String(),
 		RelyingPartyID:   creation.Response.RelyingParty.ID,
+		Origin:           creation.Response.Origin,
 		UserID:           user.WebAuthnID(),
 		UserVerification: creation.Response.AuthenticatorSelection.UserVerification,
+		Extensions:       creation.Response.Extensions.Session(),
 		CredParams:       creation.Response.Parameters,
 		Mediation:        creation.Mediation,
 	}
@@ -114,6 +137,33 @@ func (webauthn *WebAuthn) BeginMediatedRegistration(user User, mediation protoco
 	}
 
 	return creation, session, nil
+}
+
+// normalizeCreationOptions applies the adjustments which depend on the creation options as a whole. It runs after
+// every [RegistrationOption] has been applied so the result does not depend on the order they were supplied in,
+// which is why neither adjustment lives inside the option that motivates it.
+func normalizeCreationOptions(response *protocol.PublicKeyCredentialCreationOptions) {
+	// The FIDO AppID Exclusion Extension is only meaningful when the exclude list contains a credential registered
+	// through the legacy FIDO U2F JavaScript API.
+	if !hasU2FCredential(response.CredentialExcludeList) {
+		response.Extensions.AppIDExclude = ""
+	}
+
+	// For compatibility with user agents which predate hints, the attachment implied by the most preferred hint which
+	// implies one is set when the Relying Party did not select an attachment itself; see
+	// [protocol.PublicKeyCredentialHints.AuthenticatorAttachment]. The hints are scanned in order rather than only the
+	// first being consulted because a Relying Party is expected to send a more specific hint ahead of less specific
+	// ones, and the more specific hint may be one this library does not model. The attachment is left unset when no
+	// hint implies one.
+	if response.AuthenticatorSelection.AuthenticatorAttachment == "" {
+		for _, hint := range response.Hints {
+			if attachment := hint.AuthenticatorAttachment(); attachment != "" {
+				response.AuthenticatorSelection.AuthenticatorAttachment = attachment
+
+				break
+			}
+		}
+	}
 }
 
 // FinishRegistration takes the response from the authenticator and client and verify the credential against the user's
@@ -146,12 +196,29 @@ func (webauthn *WebAuthn) CreateCredential(user User, session SessionData, parse
 		return nil, protocol.ErrBadRequest.WithDetails("Session has Expired")
 	}
 
+	if err = validateSessionChallenge(session.Challenge); err != nil {
+		return nil, err
+	}
+
 	shouldVerifyUser := session.UserVerification == protocol.VerificationRequired
 	shouldVerifyUserPresence := session.Mediation != protocol.MediationConditional
 
 	var clientDataHash []byte
 
-	if clientDataHash, err = parsedResponse.Verify(session.Challenge, webauthn.Config.RPID, webauthn.Config.RPOrigins, webauthn.Config.RPTopOrigins, webauthn.Config.RPTopOriginVerificationMode, webauthn.Config.RPAllowCrossOrigin, shouldVerifyUser, shouldVerifyUserPresence, webauthn.Config.MDS, session.CredParams); err != nil {
+	if clientDataHash, err = parsedResponse.Verify(session.Challenge, session.GetRelyingPartyID(webauthn.Config.RPID), session.GetOrigins(webauthn.Config.RPOrigins), webauthn.Config.RPOpaqueOrigins, webauthn.Config.RPTopOrigins, webauthn.Config.RPTopOriginVerificationMode, webauthn.Config.RPAllowCrossOrigin, shouldVerifyUser, shouldVerifyUserPresence, webauthn.Config.MDS, session.CredParams, webauthn.Config.Attestation, webauthn.Config.Signature); err != nil {
+		return nil, err
+	}
+
+	// Specification: §7.1. Registering a New Credential, step 18 (https://www.w3.org/TR/webauthn-3/#sctn-registering-a-new-credential)
+	if flags := parsedResponse.Response.AttestationObject.AuthData.Flags; !flags.HasBackupEligible() && flags.HasBackupState() {
+		return nil, protocol.ErrBadRequest.WithDetails("Backup State Flag is true but Backup Eligible flag is false which is invalid")
+	}
+
+	if err = parsedResponse.ClientExtensionResults.Verify(session.Extensions, protocol.CreateCeremony, webauthn.Config.ExtensionsUnsolicitedOutputPolicy); err != nil {
+		return nil, err
+	}
+
+	if err = parsedResponse.Response.AttestationObject.AuthData.Ext.Verify(session.Extensions, protocol.CreateCeremony); err != nil {
 		return nil, err
 	}
 
@@ -199,30 +266,15 @@ func ValidateFilteredCredential(credential *Credential, filtering *FilteringConf
 	}
 
 	if len(filtering.PermittedAAGUIDs) != 0 {
-		var success = false
-
-		if aaguid == uuid.Nil {
-			success = true
-		} else {
-			for _, permitted := range filtering.PermittedAAGUIDs {
-				if permitted == aaguid {
-					success = true
-
-					break
-				}
-			}
-		}
-
-		if !success {
+		// The zero AAGUID is never excluded by the permitted list; see the FilteringConfig contract.
+		if aaguid != uuid.Nil && !slices.Contains(filtering.PermittedAAGUIDs, aaguid) {
 			return protocol.ErrPolicyRestriction.WithInfo("Credential has an AAGUID which is not permitted")
 		}
 	}
 
 	if len(filtering.ProhibitedAAGUIDs) != 0 {
-		for _, prohibited := range filtering.ProhibitedAAGUIDs {
-			if prohibited == aaguid {
-				return protocol.ErrPolicyRestriction.WithInfo("Credential has an AAGUID which is prohibited")
-			}
+		if slices.Contains(filtering.ProhibitedAAGUIDs, aaguid) {
+			return protocol.ErrPolicyRestriction.WithInfo("Credential has an AAGUID which is prohibited")
 		}
 	}
 

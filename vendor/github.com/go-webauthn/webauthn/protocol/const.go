@@ -24,6 +24,12 @@ const (
 )
 
 const (
+	maxDomainLength           = 253
+	maxDomainLabelLength      = 63
+	forbiddenDomainCodePoints = " #/:<>?@[\\]^|%"
+)
+
+const (
 	attStatementAndroidSafetyNetHostname = "attest.android.com"
 )
 
@@ -33,6 +39,19 @@ const (
 
 	// DefaultChallengeLength defines the default length of the challenge.
 	DefaultChallengeLength = 32
+)
+
+const (
+	// MinimumUserHandleLength defines the minimum length of the user handle, i.e. the user entity id. A client
+	// throws a TypeError when the length of the user handle falls outside these bounds.
+	//
+	// Specification: §5.1.3. Create a New Credential (https://www.w3.org/TR/webauthn-3/#sctn-createCredential)
+	MinimumUserHandleLength = 1
+
+	// MaximumUserHandleLength defines the maximum length of the user handle, i.e. the user entity id.
+	//
+	// Specification: §5.4.3. User Account Parameters for Credential Generation (https://www.w3.org/TR/webauthn-3/#dictdef-publickeycredentialuserentity)
+	MaximumUserHandleLength = 64
 )
 
 var (

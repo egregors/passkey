@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"strings"
 	"time"
 
@@ -19,7 +18,6 @@ import (
 // NewDecoder returns a new metadata decoder.
 func NewDecoder(opts ...DecoderOption) (decoder *Decoder, err error) {
 	decoder = &Decoder{
-		client: &http.Client{},
 		parser: jwt.NewParser(),
 		hook:   mapstructure.ComposeDecodeHookFunc(),
 	}
@@ -39,7 +37,6 @@ func NewDecoder(opts ...DecoderOption) (decoder *Decoder, err error) {
 
 // Decoder handles decoding and specialized parsing of the metadata blob.
 type Decoder struct {
-	client                   *http.Client
 	parser                   *jwt.Parser
 	hook                     mapstructure.DecodeHookFunc
 	root                     string
@@ -82,7 +79,8 @@ func (d *Decoder) Parse(payload *PayloadJSON) (metadata *Metadata, err error) {
 	return metadata, nil
 }
 
-// Decode the blob from an [io.Reader]. This function will close the [io.ReadCloser] after completing.
+// Decode the blob from an [io.Reader]. The reader is read in full but is not closed; closing it remains the
+// responsibility of the caller.
 func (d *Decoder) Decode(r io.Reader) (payload *PayloadJSON, err error) {
 	bytes, err := io.ReadAll(r)
 	if err != nil {
@@ -98,7 +96,7 @@ func (d *Decoder) DecodeBytes(bytes []byte) (payload *PayloadJSON, err error) {
 
 	if token, err = d.parser.Parse(string(bytes), func(token *jwt.Token) (any, error) {
 		// 2. If the x5u attribute is present in the JWT Header.
-		if _, ok := token.Header[HeaderX509URI].([]any); ok {
+		if _, ok := token.Header[HeaderX509URI]; ok {
 			// Never seen an x5u here, although it is in the spec.
 			return nil, errors.New("x5u encountered in header of metadata TOC payload")
 		}
@@ -190,14 +188,37 @@ func WithRootCertificate(value string) DecoderOption {
 }
 
 func validateChain(root string, chain []any) (bool, error) {
-	oRoot := make([]byte, base64.StdEncoding.DecodedLen(len(root)))
-
-	nRoot, err := base64.StdEncoding.Decode(oRoot, []byte(root))
-	if err != nil {
-		return false, err
+	if len(chain) == 0 {
+		return false, errInvalidCertificateChain
 	}
 
-	rootcert, err := x509.ParseCertificate(oRoot[:nRoot])
+	// When no x5c header is present the caller sets chain = []any{root}, meaning
+	// the trust anchor is itself the signing certificate. Allow that single-entry
+	// fallback; reject any other single-entry chain as malformed.
+	if len(chain) == 1 {
+		entry, ok := chain[0].(string)
+		if !ok || entry != root {
+			return false, errInvalidCertificateChain
+		}
+		// Root is the signing cert; no further chain validation needed.
+		return true, nil
+	}
+
+	// The chain is the signing certificate followed by every intermediate between it and the trust anchor. Each entry
+	// is type checked before any of them are decoded so that a malformed chain is reported as such rather than as a
+	// decoding failure of whichever entry happened to be handled first.
+	encoded := make([]string, len(chain))
+
+	for i, entry := range chain {
+		value, ok := entry.(string)
+		if !ok {
+			return false, errInvalidCertificateChain
+		}
+
+		encoded[i] = value
+	}
+
+	rootcert, err := mdsParseX509Certificate(root)
 	if err != nil {
 		return false, err
 	}
@@ -206,57 +227,48 @@ func validateChain(root string, chain []any) (bool, error) {
 
 	roots.AddCert(rootcert)
 
-	o := make([]byte, base64.StdEncoding.DecodedLen(len(chain[1].(string))))
-
-	n, err := base64.StdEncoding.Decode(o, []byte(chain[1].(string)))
-	if err != nil {
-		return false, err
-	}
-
-	intcert, err := x509.ParseCertificate(o[:n])
-	if err != nil {
-		return false, err
-	}
-
-	if revoked, ok := revoke.VerifyCertificate(intcert); !ok {
-		issuer := intcert.IssuingCertificateURL
-
-		if issuer != nil {
-			return false, errCRLUnavailable
-		}
-	} else if revoked {
-		return false, errIntermediateCertRevoked
-	}
-
 	ints := x509.NewCertPool()
-	ints.AddCert(intcert)
 
-	l := make([]byte, base64.StdEncoding.DecodedLen(len(chain[0].(string))))
+	for _, value := range encoded[1:] {
+		var intcert *x509.Certificate
 
-	n, err = base64.StdEncoding.Decode(l, []byte(chain[0].(string)))
+		if intcert, err = mdsParseX509Certificate(value); err != nil {
+			return false, err
+		}
+
+		if err = validateChainCheckRevocation(intcert, errIntermediateCertRevoked); err != nil {
+			return false, err
+		}
+
+		ints.AddCert(intcert)
+	}
+
+	leafcert, err := mdsParseX509Certificate(encoded[0])
 	if err != nil {
 		return false, err
 	}
 
-	leafcert, err := x509.ParseCertificate(l[:n])
-	if err != nil {
+	if err = validateChainCheckRevocation(leafcert, errLeafCertRevoked); err != nil {
 		return false, err
-	}
-
-	if revoked, ok := revoke.VerifyCertificate(leafcert); !ok {
-		return false, errCRLUnavailable
-	} else if revoked {
-		return false, errLeafCertRevoked
 	}
 
 	opts := x509.VerifyOptions{
 		Roots:         roots,
 		Intermediates: ints,
+		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
 	}
 
 	_, err = leafcert.Verify(opts)
 
 	return err == nil, err
+}
+
+func validateChainCheckRevocation(cert *x509.Certificate, revokedErr error) error {
+	if revoked, ok := revoke.VerifyCertificate(cert); ok && revoked {
+		return revokedErr
+	}
+
+	return nil
 }
 
 func mdsParseX509Certificate(value string) (certificate *x509.Certificate, err error) {

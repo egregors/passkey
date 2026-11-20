@@ -2,15 +2,16 @@ package protocol
 
 import (
 	"bytes"
-	"crypto"
 	"crypto/subtle"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
-	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
+	"slices"
 	"strings"
+	"time"
 
 	"github.com/google/go-tpm/tpm2"
 
@@ -42,9 +43,15 @@ import (
 // Specification: §8.3. TPM Attestation Statement Format
 //
 // See: https://www.w3.org/TR/webauthn/#sctn-tpm-attestation
+func attestationFormatValidationHandlerTPM(att AttestationObject, clientDataHash []byte, _ metadata.Provider, _ AttestationPolicy, signature SignaturePolicy) (attestationType string, x5cs []any, err error) {
+	return attestationFormatValidationTPM(att, clientDataHash, signature, time.Now())
+}
+
+// attestationFormatValidationTPM is the TPM attestation statement format verification procedure, where the AIK
+// certificate must be within its validity period at the given time.
 //
 //nolint:gocyclo
-func attestationFormatValidationHandlerTPM(att AttestationObject, clientDataHash []byte, _ metadata.Provider) (attestationType string, x5cs []any, err error) {
+func attestationFormatValidationTPM(att AttestationObject, clientDataHash []byte, signature SignaturePolicy, now time.Time) (attestationType string, x5cs []any, err error) {
 	var statement *tpm2AttStatement
 
 	if statement, err = newTPM2AttStatement(att.AttStatement); err != nil {
@@ -116,7 +123,16 @@ func attestationFormatValidationHandlerTPM(att AttestationObject, clientDataHash
 			return "", nil, ErrAttestationFormat.WithDetails("Mismatch between RSAParameters in pubArea and credentialPublicKey")
 		}
 
-		exp := uint32(k.Exponent[0]) + uint32(k.Exponent[1])<<8 + uint32(k.Exponent[2])<<16
+		var e int
+
+		if e, err = webauthncose.ParseRSAPublicKeyDataExponent(&k); err != nil {
+			return "", nil, ErrAttestationFormat.WithDetails("Unable to decode RSA exponent in attestation statement").WithError(err)
+		} else if uint64(e) > math.MaxUint32 { //nolint:gosec // The exponent is guaranteed to be positive by the parser.
+			return "", nil, ErrAttestationFormat.WithDetails("Invalid RSA public key size")
+		}
+
+		exp := uint32(e) //nolint:gosec // The exponent is bounds checked above.
+
 		if tpm2Exponent(params) != exp {
 			return "", nil, ErrAttestationFormat.WithDetails("Mismatch between RSAParameters in pubArea and credentialPublicKey")
 		}
@@ -125,7 +141,7 @@ func attestationFormatValidationHandlerTPM(att AttestationObject, clientDataHash
 	}
 
 	// Concatenate authenticatorData and clientDataHash to form attToBeSigned.
-	attToBeSigned := append(att.RawAuthData, clientDataHash...) //nolint:gocritic // This is intentional.
+	attToBeSigned := slices.Concat(att.RawAuthData, clientDataHash)
 
 	var certInfo *tpm2.TPMSAttest
 
@@ -147,7 +163,11 @@ func attestationFormatValidationHandlerTPM(att AttestationObject, clientDataHash
 	// 3/4 Verify that extraData is set to the hash of attToBeSigned using the hash algorithm employed in "alg".
 	coseAlg := webauthncose.COSEAlgorithmIdentifier(statement.Algorithm)
 
-	h := webauthncose.HasherFromCOSEAlg(coseAlg)
+	h, supported := webauthncose.HasherFromCOSEAlg(coseAlg)
+	if !supported {
+		return "", nil, ErrInvalidAttestation.WithDetails(fmt.Sprintf("Unsupported COSE alg: %d", statement.Algorithm))
+	}
+
 	h.Write(attToBeSigned)
 
 	if !bytes.Equal(certInfo.ExtraData.Buffer, h.Sum(nil)) {
@@ -179,8 +199,14 @@ func attestationFormatValidationHandlerTPM(att AttestationObject, clientDataHash
 
 	if sigAlg := webauthncose.SigAlgFromCOSEAlg(coseAlg); sigAlg == x509.UnknownSignatureAlgorithm {
 		return "", nil, ErrInvalidAttestation.WithDetails(fmt.Sprintf("Unsupported COSE alg: %d", statement.Algorithm))
-	} else if err = aikCert.CheckSignature(sigAlg, statement.CertInfo, statement.Signature); err != nil {
+	} else if err = certCheckSignature(aikCert, sigAlg, statement.CertInfo, statement.Signature, signature); err != nil {
 		return "", nil, ErrAttestationFormat.WithDetails(fmt.Sprintf("Signature validation error: %+v", err))
+	}
+
+	// The AIK certificate must be within its validity period, as with the attestation certificate of the packed
+	// attestation statement format.
+	if aikCert.NotBefore.After(now) || aikCert.NotAfter.Before(now) {
+		return "", nil, ErrAttestationFormat.WithDetails("AIK certificate is either no longer valid or not yet valid")
 	}
 
 	// Verify that aikCert meets the requirements in §8.3.1 TPM Attestation Statement Certificate Requirements.
@@ -198,6 +224,7 @@ func attestationFormatValidationHandlerTPM(att AttestationObject, clientDataHash
 	var (
 		manufacturer, model, version string
 		ekuValid                     = false
+		constraintsValid             = false
 		eku                          []asn1.ObjectIdentifier
 		constraints                  tpmBasicConstraints
 		rest                         []byte
@@ -236,6 +263,8 @@ func attestationFormatValidationHandlerTPM(att AttestationObject, clientDataHash
 			} else if len(rest) != 0 {
 				return "", nil, ErrAttestationFormat.WithDetails("AIK certificate basic constraints contains extra data")
 			}
+
+			constraintsValid = true
 		}
 	}
 
@@ -253,11 +282,27 @@ func attestationFormatValidationHandlerTPM(att AttestationObject, clientDataHash
 		return "", nil, ErrAttestationFormat.WithDetails("AIK certificate missing EKU")
 	}
 
+	// 5/6 The Basic Constraints extension MUST have the CA component set to false. An absent extension can't have the
+	// CA component set to false so it's rejected in the same way as one which asserts CA is true.
+	//
 	// 6/6 An Authority Information Access (AIA) extension with entry id-ad-ocsp and a CRL Distribution Point
 	// extension [RFC5280] are both OPTIONAL as the status of many attestation certificates is available
 	// through metadata services. See, for example, the FIDO Metadata Service.
-	if constraints.IsCA {
+	if !constraintsValid || constraints.IsCA {
 		return "", nil, ErrAttestationFormat.WithDetails("AIK certificate basic constraints missing or CA is true")
+	}
+
+	// If aikCert contains an extension with OID 1.3.6.1.4.1.45724.1.1.4 (id-fido-gen-ce-aaguid) verify that the value
+	// of this extension matches the aaguid in authenticatorData.
+	var (
+		aaguid []byte
+		found  bool
+	)
+
+	if aaguid, _, found, err = attestationCertAAGUID(aikCert); err != nil {
+		return "", nil, ErrInvalidAttestation.WithDetails("Error unmarshalling AAGUID from certificate").WithError(err)
+	} else if found && !bytes.Equal(aaguid, att.AuthData.AttData.AAGUID) {
+		return "", nil, ErrInvalidAttestation.WithDetails("Certificate AAGUID does not match Auth Data certificate")
 	}
 
 	// 4/4 Verify that attested contains a TPMS_CERTIFY_INFO structure as specified in
@@ -310,34 +355,6 @@ func tpm2NameMatch(certInfo *tpm2.TPMSAttest, pubArea *tpm2.TPMTPublic) (match b
 	// See: https://w3c.github.io/webauthn/#sctn-tpm-attestation
 
 	return subtle.ConstantTimeCompare(certifyInfo.Name.Buffer, name.Buffer) == 1, nil
-}
-
-func tpm2NameDigest(name tpm2.TPM2BName) (alg tpm2.TPMIAlgHash, digest []byte, err error) {
-	buf := name.Buffer
-
-	if len(buf) < 3 {
-		return 0, nil, fmt.Errorf("name too short")
-	}
-
-	alg = tpm2.TPMIAlgHash(binary.BigEndian.Uint16(buf[:2]))
-
-	var hash crypto.Hash
-
-	if hash, err = alg.Hash(); err != nil {
-		return 0, nil, fmt.Errorf("invalid hash algorithm: %w", err)
-	}
-
-	digest = buf[2:]
-
-	if len(digest) == 0 {
-		return 0, nil, fmt.Errorf("name digest is empty")
-	}
-
-	if len(digest) != hash.Size() {
-		return 0, nil, fmt.Errorf("invalid name digest length: %d", len(digest))
-	}
-
-	return alg, digest, nil
 }
 
 type tpm2AttStatement struct {
@@ -497,72 +514,23 @@ type tpmManufacturer struct {
 	code string
 }
 
-// See https://trustedcomputinggroup.org/resource/vendor-id-registry/ for registry contents.
-var (
-	tpmManufacturers = []tpmManufacturer{
-		{"414D4400", "AMD", "AMD"},
-		{"414E5400", "Ant Group", "ANT"},
-		{"41544D4C", "Atmel", "ATML"},
-		{"4252434D", "Broadcom", "BRCM"},
-		{"4353434F", "Cisco", "CSCO"},
-		{"464C5953", "Flyslice Technologies", "FLYS"},
-		{"524F4343", "Fuzhou Rockchip", "ROCC"},
-		{"474F4F47", "Google", "GOOG"},
-		{"48504900", "HPI", "HPI"},
-		{"48504500", "HPE", "HPE"},
-		{"48495349", "Huawei", "HISI"},
-		{"49424d00", "IBM", "IBM"},
-		{"49424D00", "IBM", "IBM"},
-		{"49465800", "Infineon", "IFX"},
-		{"494E5443", "Intel", "INTC"},
-		{"4C454E00", "Lenovo", "LEN"},
-		{"4D534654", "Microsoft", "MSFT"},
-		{"4E534D20", "National Semiconductor", "NSM"},
-		{"4E545A00", "Nationz", "NTZ"},
-		{"4E534700", "NSING", "NSG"},
-		{"4E544300", "Nuvoton Technology", "NTC"},
-		{"51434F4D", "Qualcomm", "QCOM"},
-		{"534D534E", "Samsung", "SECE"},
-		{"53454345", "SecEdge", "SecEdge"},
-		{"534E5300", "Sinosun", "SNS"},
-		{"534D5343", "SMSC", "SMSC"},
-		{"53544D20", "ST Microelectronics", "STM"},
-		{"54584E00", "Texas Instruments", "TXN"},
-		{"57454300", "Winbond", "WEC"},
-		{"5345414C", "Wisekey", "SEAL"},
-		{"FFFFF1D0", "FIDO Alliance Conformance Testing", "FIDO"},
-	}
-)
-
-func isValidTPMManufacturer(id string) bool {
-	for _, m := range tpmManufacturers {
-		if m.id == id {
-			return true
-		}
+// tpmParseAIKAttCA prepares an Attestation Identity Key certificate and its parents for chain verification against the
+// Metadata Service.
+//
+// The only adjustment required is clearing the critical Subject Alternative Name, as crypto/x509 has no verification
+// option which accepts a critical extension it doesn't itself parse. The Extended Key Usages are left intact as the
+// verifier requests x509.ExtKeyUsageAny, which admits the TCG and Microsoft usages. §8.3.1 requires the attestation
+// certificate carry the AIK Extended Key Usage, which the TPM attestation handler enforces against the same
+// certificate.
+func tpmParseAIKAttCA(x5c *x509.Certificate, x5cis []*x509.Certificate) (leaf *x509.Certificate, parents []*x509.Certificate, protoErr *Error) {
+	if leaf, protoErr = tpmParseSANExtension(x5c); protoErr != nil {
+		return nil, nil, protoErr
 	}
 
-	return false
+	return leaf, x5cis, nil
 }
 
-func tpmParseAIKAttCA(x5c *x509.Certificate, x5cis []*x509.Certificate) (err *Error) {
-	if err = tpmParseSANExtension(x5c); err != nil {
-		return err
-	}
-
-	if err = tpmRemoveEKU(x5c); err != nil {
-		return err
-	}
-
-	for _, parent := range x5cis {
-		if err = tpmRemoveEKU(parent); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func tpmParseSANExtension(attestation *x509.Certificate) (protoErr *Error) {
+func tpmParseSANExtension(attestation *x509.Certificate) (out *x509.Certificate, protoErr *Error) {
 	var (
 		manufacturer, model, version string
 		err                          error
@@ -571,13 +539,13 @@ func tpmParseSANExtension(attestation *x509.Certificate) (protoErr *Error) {
 	for _, ext := range attestation.Extensions {
 		if ext.Id.Equal(oidExtensionSubjectAltName) {
 			if manufacturer, model, version, err = parseSANExtension(ext.Value); err != nil {
-				return ErrInvalidAttestation.WithDetails("Authenticator with invalid Authenticator Identity Key SAN data encountered during attestation validation.").WithInfo(fmt.Sprintf("Error occurred parsing SAN extension: %s", err.Error())).WithError(err)
+				return nil, ErrInvalidAttestation.WithDetails("Authenticator with invalid Authenticator Identity Key SAN data encountered during attestation validation.").WithInfo(fmt.Sprintf("Error occurred parsing SAN extension: %s", err.Error())).WithError(err)
 			}
 		}
 	}
 
 	if manufacturer == "" || model == "" || version == "" {
-		return ErrAttestationFormat.WithDetails("Invalid SAN data in AIK certificate.")
+		return nil, ErrAttestationFormat.WithDetails("Invalid SAN data in AIK certificate.")
 	}
 
 	var unhandled []asn1.ObjectIdentifier
@@ -590,44 +558,16 @@ func tpmParseSANExtension(attestation *x509.Certificate) (protoErr *Error) {
 		unhandled = append(unhandled, uce)
 	}
 
-	attestation.UnhandledCriticalExtensions = unhandled
+	out = new(x509.Certificate)
+	*out = *attestation
+	out.UnhandledCriticalExtensions = unhandled
 
-	return nil
+	return out, nil
 }
 
 type tpmBasicConstraints struct {
 	IsCA       bool `asn1:"optional"`
 	MaxPathLen int  `asn1:"optional,default:-1"`
-}
-
-// Remove extension key usage to avoid ExtKeyUsage check failure.
-func tpmRemoveEKU(x5c *x509.Certificate) *Error {
-	var (
-		unknown []asn1.ObjectIdentifier
-		hasAiK  bool
-	)
-
-	for _, eku := range x5c.UnknownExtKeyUsage {
-		if eku.Equal(oidTCGKpAIKCertificate) {
-			hasAiK = true
-
-			continue
-		}
-
-		if eku.Equal(oidMicrosoftKpPrivacyCA) {
-			continue
-		}
-
-		unknown = append(unknown, eku)
-	}
-
-	if !hasAiK {
-		return ErrAttestationFormat.WithDetails("Attestation Identity Key certificate missing required Extended Key Usage.")
-	}
-
-	x5c.UnknownExtKeyUsage = unknown
-
-	return nil
 }
 
 func init() {
