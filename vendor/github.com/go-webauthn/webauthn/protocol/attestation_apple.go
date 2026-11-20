@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/asn1"
+	"slices"
 	"time"
 
 	"github.com/go-webauthn/webauthn/metadata"
@@ -27,7 +28,7 @@ import (
 // Specification: §8.8. Apple Anonymous Attestation Statement Format
 //
 // See : https://www.w3.org/TR/webauthn/#sctn-apple-anonymous-attestation
-func attestationFormatValidationHandlerAppleAnonymous(att AttestationObject, clientDataHash []byte, _ metadata.Provider) (attestationType string, x5cs []any, err error) {
+func attestationFormatValidationHandlerAppleAnonymous(att AttestationObject, clientDataHash []byte, _ metadata.Provider, _ AttestationPolicy, _ SignaturePolicy) (attestationType string, x5cs []any, err error) {
 	// Step 1. Verify that attStmt is valid CBOR conforming to the syntax defined above and perform CBOR decoding on it
 	// to extract the contained fields.
 	var (
@@ -50,7 +51,7 @@ func attestationFormatValidationHandlerAppleAnonymous(att AttestationObject, cli
 	}
 
 	// Step 2. Concatenate authenticatorData and clientDataHash to form nonceToHash.
-	nonceToHash := append(att.RawAuthData, clientDataHash...) //nolint:gocritic // This is intentional.
+	nonceToHash := slices.Concat(att.RawAuthData, clientDataHash)
 
 	// Step 3. Perform SHA-256 hash of nonceToHash to produce nonce.
 	nonce := sha256.Sum256(nonceToHash)
@@ -81,7 +82,7 @@ func attestationFormatValidationHandlerAppleAnonymous(att AttestationObject, cli
 	}
 
 	// Step 5. Verify that the credential public key equals the Subject Public Key of credCert.
-	if _, err = verifyAttestationECDSAPublicKeyMatch(att, credCert); err != nil {
+	if _, err = verifyAttestationPublicKeyMatch(att, credCert); err != nil {
 		return "", nil, err
 	}
 

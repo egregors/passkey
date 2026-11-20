@@ -1,6 +1,18 @@
 Changes
 =======
 
+#### ver.: 2.0.1 (20.11.2026)
+
+* Go WebAuthn dependency update (v0.17.4 -> v0.18.2).
+  Note: go-webauthn v0.18 rejects IP addresses as RP ID (use domain or localhost),
+  switches SessionData.Extensions to typed protocol.SessionExtensions,
+  and enforces UV initialization policy on credential updates.
+* JS SimpleWebAuthn dependency update (v13.3.0 -> v14.0.0).
+* Vendor @simplewebauthn/browser v14.0.0 in the example app.
+* Synchronize the example module with the main Go dependencies.
+* Require Go 1.26 or newer.
+* Deep-copy credential extensions in example storage snapshot.
+
 #### ver.: 2.0.0 (19.11.2026)
 
 * Require Go 1.25 or newer.

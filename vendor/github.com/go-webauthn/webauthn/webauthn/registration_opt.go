@@ -6,8 +6,10 @@ import "github.com/go-webauthn/webauthn/protocol"
 //
 // Specification: §5.4. Parameters for Credential Generation (https://www.w3.org/TR/webauthn/#dom-publickeycredentialcreationoptions-pubkeycredparams)
 func WithCredentialParameters(credentialParams []protocol.CredentialParameter) RegistrationOption {
-	return func(cco *protocol.PublicKeyCredentialCreationOptions) {
+	return func(cco *protocol.PublicKeyCredentialCreationOptions) error {
 		cco.Parameters = credentialParams
+
+		return nil
 	}
 }
 
@@ -15,8 +17,10 @@ func WithCredentialParameters(credentialParams []protocol.CredentialParameter) R
 //
 // Specification: §5.4. Parameters for Credential Generation (https://www.w3.org/TR/webauthn/#dom-publickeycredentialcreationoptions-excludecredentials)
 func WithExclusions(excludeList []protocol.CredentialDescriptor) RegistrationOption {
-	return func(cco *protocol.PublicKeyCredentialCreationOptions) {
+	return func(cco *protocol.PublicKeyCredentialCreationOptions) error {
 		cco.CredentialExcludeList = excludeList
+
+		return nil
 	}
 }
 
@@ -27,8 +31,10 @@ func WithExclusions(excludeList []protocol.CredentialDescriptor) RegistrationOpt
 //
 // Specification: §5.4.4. Authenticator Selection Criteria (https://www.w3.org/TR/webauthn/#dictdef-authenticatorselectioncriteria)
 func WithAuthenticatorSelection(authenticatorSelection protocol.AuthenticatorSelection) RegistrationOption {
-	return func(cco *protocol.PublicKeyCredentialCreationOptions) {
+	return func(cco *protocol.PublicKeyCredentialCreationOptions) error {
 		cco.AuthenticatorSelection = authenticatorSelection
+
+		return nil
 	}
 }
 
@@ -38,7 +44,7 @@ func WithAuthenticatorSelection(authenticatorSelection protocol.AuthenticatorSel
 //
 // Specification: §5.4.4. Authenticator Selection Criteria (https://www.w3.org/TR/webauthn/#dictdef-authenticatorselectioncriteria)
 func WithResidentKeyRequirement(requirement protocol.ResidentKeyRequirement) RegistrationOption {
-	return func(cco *protocol.PublicKeyCredentialCreationOptions) {
+	return func(cco *protocol.PublicKeyCredentialCreationOptions) error {
 		cco.AuthenticatorSelection.ResidentKey = requirement
 
 		switch requirement {
@@ -47,6 +53,8 @@ func WithResidentKeyRequirement(requirement protocol.ResidentKeyRequirement) Reg
 		default:
 			cco.AuthenticatorSelection.RequireResidentKey = protocol.ResidentKeyNotRequired()
 		}
+
+		return nil
 	}
 }
 
@@ -56,8 +64,10 @@ func WithResidentKeyRequirement(requirement protocol.ResidentKeyRequirement) Reg
 //
 // Specification: §5.4. Parameters for Credential Generation (https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialcreationoptions-hints)
 func WithPublicKeyCredentialHints(hints []protocol.PublicKeyCredentialHints) RegistrationOption {
-	return func(cco *protocol.PublicKeyCredentialCreationOptions) {
+	return func(cco *protocol.PublicKeyCredentialCreationOptions) error {
 		cco.Hints = hints
+
+		return nil
 	}
 }
 
@@ -66,8 +76,10 @@ func WithPublicKeyCredentialHints(hints []protocol.PublicKeyCredentialHints) Reg
 //
 // Specification: §5.4. Parameters for Credential Generation (https://www.w3.org/TR/webauthn/#dom-publickeycredentialcreationoptions-attestation)
 func WithConveyancePreference(preference protocol.ConveyancePreference) RegistrationOption {
-	return func(cco *protocol.PublicKeyCredentialCreationOptions) {
+	return func(cco *protocol.PublicKeyCredentialCreationOptions) error {
 		cco.Attestation = preference
+
+		return nil
 	}
 }
 
@@ -77,56 +89,64 @@ func WithConveyancePreference(preference protocol.ConveyancePreference) Registra
 //
 // Specification: §5.4. Parameters for Credential Generation (https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialcreationoptions-attestationformats)
 func WithAttestationFormats(formats []protocol.AttestationFormat) RegistrationOption {
-	return func(cco *protocol.PublicKeyCredentialCreationOptions) {
+	return func(cco *protocol.PublicKeyCredentialCreationOptions) error {
 		cco.AttestationFormats = formats
+
+		return nil
 	}
 }
 
-// WithExtensions adjusts the extension parameter in the registration options.
+// WithAppIdExcludeExtension sets the specified appid as the FIDO AppID Exclusion Extension input. The option
+// itself always sets it; [WebAuthn.BeginRegistration] then discards it unless the CredentialExcludeList contains a
+// credential with the fido-u2f attestation format, which is what makes the result independent of the order the
+// options were supplied in.
 //
-// Specification: §5.4. Parameters for Credential Generation (https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialcreationoptions-extensions)
+// Specification: §10.1.2. FIDO AppID Exclusion Extension (https://www.w3.org/TR/webauthn-3/#sctn-appid-exclude-extension)
 //
-// Specification: §9. Extensions (https://www.w3.org/TR/webauthn/#webauthn-extensions)
-func WithExtensions(extension protocol.AuthenticationExtensions) RegistrationOption {
-	return func(cco *protocol.PublicKeyCredentialCreationOptions) {
-		cco.Extensions = extension
-	}
-}
-
-// WithAppIdExcludeExtension automatically includes the specified appid if the CredentialExcludeList contains a credential
-// with the type `fido-u2f`.
-//
-// Specification: §5.4. Parameters for Credential Generation (https://www.w3.org/TR/webauthn-3/#dom-publickeycredentialcreationoptions-extensions)
-//
-// Specification: §9. Extensions (https://www.w3.org/TR/webauthn/#webauthn-extensions)
-//
-// Specification: §10.1.2. FIDO AppID Exclusion Extension (https://www.w3.org/TR/webauthn/#sctn-appid-exclude-extension)
+// Deprecated: use [WithExtensions] with [WithExtensionAppIDExclude], which is order-independent with respect to
+// [WithExclusions].
 func WithAppIdExcludeExtension(appid string) RegistrationOption {
-	return func(cco *protocol.PublicKeyCredentialCreationOptions) {
-		for _, credential := range cco.CredentialExcludeList {
-			if credential.AttestationFormat == string(protocol.AttestationFormatFIDOUniversalSecondFactor) {
-				if cco.Extensions == nil {
-					cco.Extensions = map[string]any{}
-				}
-
-				cco.Extensions[protocol.ExtensionAppIDExclude] = appid
-
-				break
-			}
-		}
-	}
+	return WithExtensions(WithExtensionAppIDExclude(appid))
 }
 
 // WithRegistrationRelyingPartyID sets the relying party id for the registration.
 func WithRegistrationRelyingPartyID(id string) RegistrationOption {
-	return func(cco *protocol.PublicKeyCredentialCreationOptions) {
+	return func(cco *protocol.PublicKeyCredentialCreationOptions) error {
 		cco.RelyingParty.ID = id
+
+		return nil
+	}
+}
+
+// WithRegistrationOrigin binds this registration ceremony to a single origin, which [WebAuthn.CreateCredential]
+// verifies the collected client data against in place of every origin in [Config.RPOrigins]. A Relying Party which
+// serves several origins can therefore hold a ceremony to the origin it was begun at, so a response collected at one
+// of its other origins does not complete it.
+//
+// The origin must be one of those configured in [Config.RPOrigins]; the option narrows that set and can't widen it,
+// so a value which is not configured fails at [WebAuthn.BeginRegistration] rather than at the Finish step. It must
+// also be a http or https origin. An opaque origin such as 'android:apk-key-hash:...' is only ever conveyed in the
+// response and so can't be known when the ceremony begins; those configured in [Config.RPOpaqueOrigins] remain
+// acceptable while a ceremony is bound, as a Relying Party which accepts native clients cannot tell them apart from
+// browser clients in advance.
+//
+// The binding covers the ceremony origin only. A topOrigin is verified against [Config.RPTopOrigins] under the
+// configured [protocol.TopOriginVerificationMode] as usual.
+//
+// Specification: §7.1. Registering a New Credential, step 9 (https://www.w3.org/TR/webauthn-3/#sctn-registering-a-new-credential)
+func WithRegistrationOrigin(origin string) RegistrationOption {
+	return func(cco *protocol.PublicKeyCredentialCreationOptions) error {
+		cco.Origin = origin
+
+		return nil
 	}
 }
 
 // WithRegistrationRelyingPartyName sets the relying party name for the registration.
 func WithRegistrationRelyingPartyName(name string) RegistrationOption {
-	return func(cco *protocol.PublicKeyCredentialCreationOptions) {
+	return func(cco *protocol.PublicKeyCredentialCreationOptions) error {
 		cco.RelyingParty.Name = name
+
+		return nil
 	}
 }

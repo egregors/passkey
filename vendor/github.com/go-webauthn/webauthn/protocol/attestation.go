@@ -78,12 +78,69 @@ type AttestationObject struct {
 	// The attestation statement data sent back if attestation is requested.
 	AttStatement map[string]any `json:"attStmt,omitempty"`
 
+	// SubStatements holds the sub-statements of a compound attestation statement, which §8.9 encodes as an array
+	// rather than as the map every other format uses for its attestation statement. It is populated by
+	// [AttestationObject.UnmarshalCBOR] when, and only when, Format is "compound", and for such an attestation
+	// AttStatement is empty because the wire format carries no map to put there.
+	//
+	// Specification: §8.9. Compound Attestation Statement Format (https://www.w3.org/TR/webauthn-3/#sctn-compound-attestation)
+	SubStatements []NonCompoundAttestationObject `json:"-"`
+
 	// Type is the attestation type as conveyed by the authenticator, one of the values defined by
 	// [metadata.AuthenticatorAttestationType] (i.e. "basic_full", "basic_surrogate", "attca", "anonca", "none").
 	// It is populated as a side-effect of a successful [AttestationObject.VerifyAttestation]; before that the field
 	// is empty. This field is excluded from serialization because the attestation object wire format does not carry
 	// this value; it is derived by the format-specific verifier.
 	Type string `json:"-"`
+}
+
+// attestationObjectEncoded is the wire form of an [AttestationObject], with the attestation statement left undecoded
+// so it can be decoded as the map every attestation statement format uses or as the array §8.9 defines for the
+// compound format. Which of the two applies is determined by the fmt member of the same map, so the statement cannot
+// be decoded until the rest of the object has been.
+type attestationObjectEncoded struct {
+	RawAuthData  []byte                  `json:"authData"`
+	Format       string                  `json:"fmt"`
+	AttStatement webauthncbor.RawMessage `json:"attStmt,omitempty"`
+}
+
+// UnmarshalCBOR implements the CBOR unmarshalling of an attestation object, decoding the attestation statement
+// according to the attestation statement format the object declares.
+//
+// Every format defined by §8 other than compound encodes its attestation statement as a map, which is decoded into
+// [AttestationObject.AttStatement]. The compound format encodes an array of sub-statements instead, which is decoded
+// into [AttestationObject.SubStatements]. A single field cannot hold both, and the shape is not self-describing to
+// the decoder, hence the two passes.
+//
+// [AttestationObject.AuthData] is not populated here; it is unmarshalled from [AttestationObject.RawAuthData] by the
+// response parser, which is also where the attested credential data is required to be present.
+//
+// The receiver is zeroed first so that decoding into one which already holds an attestation object replaces it
+// rather than adding to it. Only one of the two statement members is written by any given object, the statement is
+// not written at all by an object which carries none, and [AttestationObject.AuthData] and [AttestationObject.Type]
+// are populated after decoding rather than during it, so without this every one of them could outlive the object it
+// describes. Decoding a map into a non-nil map merges into it, so a statement decoded over another would otherwise
+// inherit the members the new one does not carry.
+//
+// Specification: §8.9. Compound Attestation Statement Format (https://www.w3.org/TR/webauthn-3/#sctn-compound-attestation)
+func (a *AttestationObject) UnmarshalCBOR(data []byte) (err error) {
+	var encoded attestationObjectEncoded
+
+	if err = webauthncbor.Unmarshal(data, &encoded); err != nil {
+		return err
+	}
+
+	*a = AttestationObject{RawAuthData: encoded.RawAuthData, Format: encoded.Format}
+
+	if len(encoded.AttStatement) == 0 {
+		return nil
+	}
+
+	if AttestationFormat(a.Format) == AttestationFormatCompound {
+		return webauthncbor.Unmarshal(encoded.AttStatement, &a.SubStatements)
+	}
+
+	return webauthncbor.Unmarshal(encoded.AttStatement, &a.AttStatement)
 }
 
 // NonCompoundAttestationObject is a subset of [AttestationObject] used within compound attestation statements. Each
@@ -99,7 +156,7 @@ type NonCompoundAttestationObject struct {
 	AttStatement map[string]any `json:"attStmt,omitempty"`
 }
 
-type attestationFormatValidationHandler func(att AttestationObject, clientDataHash []byte, mds metadata.Provider) (attestationType string, x5cs []any, err error)
+type attestationFormatValidationHandler func(att AttestationObject, clientDataHash []byte, mds metadata.Provider, policy AttestationPolicy, signature SignaturePolicy) (attestationType string, x5cs []any, err error)
 
 var attestationRegistry = make(map[AttestationFormat]attestationFormatValidationHandler)
 
@@ -149,7 +206,7 @@ func (ccr *AuthenticatorAttestationResponse) Parse() (p *ParsedAttestationRespon
 //
 // Steps 13 through 15 are verified against the auth data. These steps are identical to 15 through 18 for assertion so we
 // handle them with AuthData.
-func (a *AttestationObject) Verify(relyingPartyID string, clientDataHash []byte, userVerificationRequired bool, userPresenceRequired bool, mds metadata.Provider, credParams []CredentialParameter) (err error) {
+func (a *AttestationObject) Verify(relyingPartyID string, clientDataHash []byte, userVerificationRequired bool, userPresenceRequired bool, mds metadata.Provider, credParams []CredentialParameter, policy AttestationPolicy, signature SignaturePolicy) (err error) {
 	rpIDHash := sha256.Sum256([]byte(relyingPartyID))
 
 	// Begin Step 13 through 15. Verify that the rpIdHash in authData is the SHA-256 hash of the RP ID expected by the RP.
@@ -177,12 +234,15 @@ func (a *AttestationObject) Verify(relyingPartyID string, clientDataHash []byte,
 		return ErrAttestationFormat.WithInfo("Credential public key algorithm not supported")
 	}
 
-	return a.VerifyAttestation(clientDataHash, mds)
+	return a.VerifyAttestation(clientDataHash, mds, policy, signature)
 }
 
 // VerifyAttestation only verifies the attestation object excluding the AuthData values. If you wish to also verify the
 // AuthData values you should use [Verify].
-func (a *AttestationObject) VerifyAttestation(clientDataHash []byte, mds metadata.Provider) (err error) {
+//
+// The policy carries the Relying Party decisions which §8 leaves to the Relying Party. Its zero value selects the
+// most restrictive behavior available. See [AttestationPolicy].
+func (a *AttestationObject) VerifyAttestation(clientDataHash []byte, mds metadata.Provider, policy AttestationPolicy, signature SignaturePolicy) (err error) {
 	// Step 18. Determine the attestation statement format by performing a
 	// USASCII case-sensitive match on fmt against the set of supported
 	// WebAuthn Attestation Statement Format Identifier values. The up-to-date
@@ -223,7 +283,7 @@ func (a *AttestationObject) VerifyAttestation(clientDataHash []byte, mds metadat
 	// Step 19. Verify that attStmt is a correct attestation statement, conveying a valid attestation signature, by using
 	// the attestation statement format fmt’s verification procedure given attStmt, authData and the hash of the serialized
 	// client data computed in step 7.
-	if attestationType, x5cs, err = handler(*a, clientDataHash, mds); err != nil {
+	if attestationType, x5cs, err = handler(*a, clientDataHash, mds, policy, signature); err != nil {
 		var e *Error
 
 		if errors.As(err, &e) {
@@ -245,7 +305,7 @@ func (a *AttestationObject) VerifyAttestation(clientDataHash []byte, mds metadat
 		return nil
 	}
 
-	if e := ValidateMetadata(context.Background(), mds, aaguid, a.Type, a.Format, x5cs); e != nil {
+	if e := ValidateMetadataWithAuthenticatorData(context.Background(), mds, aaguid, a.Type, a.Format, x5cs, &a.AuthData); e != nil {
 		return ErrInvalidAttestation.WithInfo(fmt.Sprintf("Error occurred validating metadata during attestation validation: %+v", e)).WithDetails(e.DevInfo).WithError(e)
 	}
 

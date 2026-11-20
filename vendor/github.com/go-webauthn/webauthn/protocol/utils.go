@@ -1,18 +1,29 @@
 package protocol
 
 import (
-	"crypto/ecdsa"
+	"crypto"
+	"crypto/ed25519"
+	"crypto/rsa"
 	"crypto/x509"
+	"encoding/asn1"
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"math/big"
 	"net"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/go-webauthn/webauthn/protocol/webauthncose"
 )
+
+// ptr returns a pointer to the given value. It exists so that the pointer-valued members of the extension output
+// structures, where an absent value must be distinguishable from a false or zero value, can be constructed inline.
+func ptr[T any](v T) *T {
+	return &v
+}
 
 func mustParseX509Certificate(der []byte) *x509.Certificate {
 	cert, err := x509.ParseCertificate(der)
@@ -49,6 +60,40 @@ func attStatementParseX5CS(attStatement map[string]any, key string) (x5c []any, 
 	return x5c, x5cs, nil
 }
 
+// attestationCertAAGUID extracts the AAGUID from the id-fido-gen-ce-aaguid extension of an attestation certificate. The
+// found return indicates the extension was present, and critical indicates it was marked as critical which some
+// attestation statement formats explicitly forbid.
+//
+// Note that an X.509 Extension encodes the DER-encoding of the value in an OCTET STRING. Thus, the AAGUID is wrapped in
+// two OCTET STRINGS to be valid.
+func attestationCertAAGUID(cert *x509.Certificate) (aaguid []byte, critical, found bool, err error) {
+	var raw []byte
+
+	for _, extension := range cert.Extensions {
+		if !extension.Id.Equal(oidFIDOGenCeAAGUID) {
+			continue
+		}
+
+		found = true
+
+		if extension.Critical {
+			critical = true
+		}
+
+		raw = extension.Value
+	}
+
+	if len(raw) == 0 {
+		return nil, critical, found, nil
+	}
+
+	if _, err = asn1.Unmarshal(raw, &aaguid); err != nil {
+		return nil, critical, found, err
+	}
+
+	return aaguid, critical, found, nil
+}
+
 func parseX5C(x5c []any) (x5cs []*x509.Certificate, err error) {
 	x5cs = make([]*x509.Certificate, len(x5c))
 
@@ -81,15 +126,7 @@ func attStatementCertChainVerify(certs []*x509.Certificate, roots *x509.CertPool
 		return nil, errors.New("empty chain")
 	}
 
-	leaf := certs[0]
-
-	for _, cert := range certs {
-		if !cert.IsCA {
-			leaf = certInsecureConditionalNotAfterMangle(cert, mangleNotAfter, mangleNotAfterSafeTime)
-
-			break
-		}
-	}
+	leaf := certInsecureConditionalNotAfterMangle(certs[0], mangleNotAfter, mangleNotAfterSafeTime)
 
 	var (
 		intermediates *x509.CertPool
@@ -105,8 +142,10 @@ func attStatementCertChainVerify(certs []*x509.Certificate, roots *x509.CertPool
 		}
 	}
 
-	for _, cert := range certs {
-		if cert == leaf {
+	// This skips the leaf by index rather than by identity as certInsecureConditionalNotAfterMangle returns a copy
+	// when it mangles a certificate, which would make an identity comparison against the leaf never match.
+	for i, cert := range certs {
+		if i == 0 {
 			continue
 		}
 
@@ -120,6 +159,12 @@ func attStatementCertChainVerify(certs []*x509.Certificate, roots *x509.CertPool
 	opts := x509.VerifyOptions{
 		Roots:         roots,
 		Intermediates: intermediates,
+
+		// Attestation certificates are not TLS certificates. An unset KeyUsages does not mean 'any': crypto/x509
+		// substitutes ExtKeyUsageServerAuth and applies it to every certificate in the chain, rejecting attestation
+		// certificates that carry any other Extended Key Usage, including ones it does not recognize such as
+		// tcg-kp-AIKCertificate (2.23.133.8.3).
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
 	}
 
 	return leaf.Verify(opts)
@@ -152,40 +197,73 @@ func certInsecureConditionalNotAfterMangle(cert *x509.Certificate, mangle bool, 
 	return out
 }
 
-func verifyAttestationECDSAPublicKeyMatch(att AttestationObject, cert *x509.Certificate) (attPublicKeyData webauthncose.EC2PublicKeyData, err error) {
-	var (
-		key any
-		ok  bool
-
-		publicKey, attPublicKey *ecdsa.PublicKey
-	)
-
-	if key, err = webauthncose.ParsePublicKey(att.AuthData.AttData.CredentialPublicKey); err != nil {
-		return attPublicKeyData, ErrInvalidAttestation.WithDetails(fmt.Sprintf("Error parsing public key: %+v", err)).WithError(err)
+// verifyAttestationPublicKeyMatch verifies the credentialPublicKey of the attested credential data is the public key
+// of the given attestation certificate, and returns the credential public key parsed from its COSE encoding so a
+// signature made with it can be verified.
+//
+// The attestation statement formats which perform this step place no restriction on the key type, so every type the
+// COSE parser produces is accepted rather than ECDSA alone.
+func verifyAttestationPublicKeyMatch(att AttestationObject, cert *x509.Certificate) (credentialPublicKey any, err error) {
+	if credentialPublicKey, err = webauthncose.ParsePublicKey(att.AuthData.AttData.CredentialPublicKey); err != nil {
+		return nil, ErrInvalidAttestation.WithDetails(fmt.Sprintf("Error parsing public key: %+v", err)).WithError(err)
 	}
 
-	if attPublicKeyData, ok = key.(webauthncose.EC2PublicKeyData); !ok {
-		return attPublicKeyData, ErrInvalidAttestation.WithDetails("Attestation public key is not ECDSA")
+	var public crypto.PublicKey
+
+	if public, err = attestationCredentialPublicKey(credentialPublicKey); err != nil {
+		return nil, ErrInvalidAttestation.WithDetails(fmt.Sprintf("Error converting public key: %+v", err)).WithError(err)
 	}
 
-	if publicKey, ok = cert.PublicKey.(*ecdsa.PublicKey); !ok {
-		return attPublicKeyData, ErrInvalidAttestation.WithDetails("Credential public key is not ECDSA")
+	// Each standard library public key type carries an Equal method which reports false for a key of another type, so
+	// a credential public key and a certificate public key of differing types are a mismatch rather than an error.
+	equatable, ok := public.(interface{ Equal(x crypto.PublicKey) bool })
+	if !ok {
+		return nil, ErrInvalidAttestation.WithDetails("Public key does not support comparison")
 	}
 
-	if attPublicKey, err = attPublicKeyData.ToECDSA(); err != nil {
-		return attPublicKeyData, ErrInvalidAttestation.WithDetails("Error converting public key to ECDSA").WithError(err)
+	if !equatable.Equal(cert.PublicKey) {
+		return nil, ErrInvalidAttestation.WithDetails("Certificate public key does not match public key in authData")
 	}
 
-	if !attPublicKey.Equal(publicKey) {
-		return attPublicKeyData, ErrInvalidAttestation.WithDetails("Certificate public key does not match public key in authData")
-	}
+	return credentialPublicKey, nil
+}
 
-	return attPublicKeyData, nil
+// attestationCredentialPublicKey converts a credential public key parsed from its COSE encoding into the equivalent
+// standard library type.
+func attestationCredentialPublicKey(credentialPublicKey any) (public crypto.PublicKey, err error) {
+	switch k := credentialPublicKey.(type) {
+	case webauthncose.EC2PublicKeyData:
+		return k.ToECDSA()
+	case webauthncose.RSAPublicKeyData:
+		var exponent int
+
+		if exponent, err = webauthncose.ParseRSAPublicKeyDataExponent(&k); err != nil {
+			return nil, err
+		}
+
+		return &rsa.PublicKey{N: new(big.Int).SetBytes(k.Modulus), E: exponent}, nil
+	case webauthncose.OKPPublicKeyData:
+		// The coordinate is of the length ed25519 requires as webauthncose.ParsePublicKey rejects any other, so no
+		// length is asserted here.
+		return ed25519.PublicKey(k.XCoord), nil
+	default:
+		if public, ok, err := akpPublicKey(credentialPublicKey); ok {
+			return public, err
+		}
+
+		return nil, fmt.Errorf("unsupported public key type %T", credentialPublicKey)
+	}
 }
 
 // ValidateRPID performs non-exhaustive checks to ensure the string is most likely a domain string as
-// relying-party ID's are required to be. Effectively this can be an IP, localhost, or a string that contains a period.
-// The relying-party ID must not contain scheme, port, path, query, or fragment components.
+// relying-party ID's are required to be. Effectively this is localhost or a domain of two or more labels. The
+// relying-party ID must not contain scheme, port, path, query, or fragment components, and must not be an IP
+// address: §5.4.2 defines it as a valid domain string, which an address literal is not, and a client rejects one.
+//
+// No IDNA normalization is performed, so a value carrying non-ASCII characters is rejected rather than converted.
+// A Relying Party ID is hashed verbatim to compare against the rpIdHash an authenticator reports, while a client
+// normalizes the value it was handed, so a name which is not already in its ASCII form can never produce a matching
+// hash. Callers serving an internationalized domain must apply IDNA themselves and configure the resulting A-label.
 //
 // See: https://www.w3.org/TR/webauthn/#rp-id
 //
@@ -196,7 +274,7 @@ func ValidateRPID(value string) (err error) {
 	}
 
 	if ip := net.ParseIP(value); ip != nil {
-		return nil
+		return errDomainIsIPAddress
 	}
 
 	var rpid *url.URL
@@ -243,11 +321,67 @@ func ValidateRPID(value string) (err error) {
 		}
 	}
 
-	if value != "localhost" && !strings.Contains(rpid.Path, ".") {
-		return errors.New("the domain component must actually be a domain")
+	return validateDomainString(value)
+}
+
+func validateDomainString(value string) error {
+	if len(value) > maxDomainLength {
+		return errDomainTooLong
+	}
+
+	labels := strings.Split(value, ".")
+
+	for _, label := range labels {
+		if len(label) == 0 {
+			return errDomainEmptyLabel
+		}
+
+		if len(label) > maxDomainLabelLength {
+			return errDomainLabelTooLong
+		}
+
+		if label[0] == '-' || label[len(label)-1] == '-' {
+			return errDomainLabelHyphen
+		}
+
+		if strings.ContainsAny(label, forbiddenDomainCodePoints) {
+			return errDomainForbiddenCharacter
+		}
+
+		for _, r := range label {
+			if r < 0x20 || r == 0x7F {
+				return errDomainForbiddenCharacter
+			}
+
+			if r > 0x7F {
+				return errDomainNotASCII
+			}
+		}
+	}
+
+	if isNumericDomainLabel(labels[len(labels)-1]) {
+		return errDomainFinalLabelNumeric
+	}
+
+	if len(labels) == 1 && value != "localhost" {
+		return errDomainNotADomain
 	}
 
 	return nil
+}
+
+func isNumericDomainLabel(label string) bool {
+	if label == "" {
+		return false
+	}
+
+	if strings.Trim(label, "0123456789") == "" {
+		return true
+	}
+
+	_, err := strconv.ParseUint(label, 0, 64)
+
+	return err == nil
 }
 
 // IsAttestationFormatString reports whether s is one of the WebAuthn-defined attestation statement format

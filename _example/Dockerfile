@@ -1,6 +1,6 @@
 # Description: Dockerfile for building the example application
 # It should be call from the root directory of the project because of the context
-FROM golang:1.23-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 WORKDIR /app
 

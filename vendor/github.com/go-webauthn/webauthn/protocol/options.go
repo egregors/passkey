@@ -35,11 +35,17 @@ type PublicKeyCredentialCreationOptions struct {
 	Parameters             []CredentialParameter      `json:"pubKeyCredParams,omitempty"`
 	Timeout                int                        `json:"timeout,omitempty"`
 	CredentialExcludeList  []CredentialDescriptor     `json:"excludeCredentials,omitempty"`
-	AuthenticatorSelection AuthenticatorSelection     `json:"authenticatorSelection,omitempty"`
+	AuthenticatorSelection AuthenticatorSelection     `json:"authenticatorSelection,omitzero"`
 	Hints                  []PublicKeyCredentialHints `json:"hints,omitempty"`
 	Attestation            ConveyancePreference       `json:"attestation,omitempty"`
 	AttestationFormats     []AttestationFormat        `json:"attestationFormats,omitempty"`
-	Extensions             AuthenticationExtensions   `json:"extensions,omitempty"`
+	Extensions             AuthenticationExtensions   `json:"extensions,omitzero"`
+
+	// Origin binds the ceremony to the single origin the response must declare. Used internally only; not
+	// serialized, as the origin is not a member of the IDL and is never conveyed to the client. It is recorded in
+	// the [github.com/go-webauthn/webauthn/webauthn.SessionData] instead, which the Finish step verifies the
+	// collected client data against in place of the configured origins.
+	Origin string `json:"-"`
 }
 
 // The PublicKeyCredentialRequestOptions dictionary supplies get() with the data it needs to generate an assertion.
@@ -55,7 +61,19 @@ type PublicKeyCredentialRequestOptions struct {
 	AllowedCredentials []CredentialDescriptor      `json:"allowCredentials,omitempty"`
 	UserVerification   UserVerificationRequirement `json:"userVerification,omitempty"`
 	Hints              []PublicKeyCredentialHints  `json:"hints,omitempty"`
-	Extensions         AuthenticationExtensions    `json:"extensions,omitempty"`
+	Extensions         AuthenticationExtensions    `json:"extensions,omitzero"`
+
+	// Origin binds the ceremony to the single origin the response must declare. Used internally only; not
+	// serialized, as the origin is not a member of the IDL and is never conveyed to the client. It is recorded in
+	// the [github.com/go-webauthn/webauthn/webauthn.SessionData] instead, which the Finish step verifies the
+	// collected client data against in place of the configured origins.
+	Origin string `json:"-"`
+
+	// AuthorizeUVInitialization records that the Relying Party has authorized the credential record's uvInitialized
+	// value to advance from false to true during this ceremony. Used internally only; not serialized, as it is not a
+	// member of the IDL and is never conveyed to the client. It is recorded in the
+	// [github.com/go-webauthn/webauthn/webauthn.SessionData] instead.
+	AuthorizeUVInitialization bool `json:"-"`
 }
 
 // CredentialDescriptor represents the PublicKeyCredentialDescriptor IDL.
@@ -111,12 +129,6 @@ const (
 	PublicKeyCredentialType CredentialType = "public-key"
 )
 
-// AuthenticationExtensions represents the AuthenticationExtensionsClientInputs IDL. This member contains additional
-// parameters requesting additional processing by the client and authenticator.
-//
-// Specification: §5.7.1. Authentication Extensions Client Inputs (https://www.w3.org/TR/webauthn/#iface-authentication-extensions-client-inputs)
-type AuthenticationExtensions map[string]any
-
 // AuthenticatorSelection represents the AuthenticatorSelectionCriteria IDL.
 //
 // WebAuthn Relying Parties may use the AuthenticatorSelectionCriteria dictionary to specify their requirements
@@ -141,6 +153,13 @@ type AuthenticatorSelection struct {
 	// the create() operation. Eligible authenticators are filtered to only those capable of satisfying this
 	// requirement.
 	UserVerification UserVerificationRequirement `json:"userVerification,omitempty"`
+}
+
+// IsZero returns true when no authenticator selection criteria are set. It is used by the encoding/json omitzero tag
+// option so a Relying Party that expresses no criteria does not send an empty authenticatorSelection member to the
+// client, which omitempty cannot do for a struct value.
+func (s AuthenticatorSelection) IsZero() bool {
+	return s.AuthenticatorAttachment == "" && s.RequireResidentKey == nil && s.ResidentKey == "" && s.UserVerification == ""
 }
 
 // ConveyancePreference is the type representing the AttestationConveyancePreference IDL.
@@ -240,6 +259,22 @@ const (
 	AttestationFormatNone AttestationFormat = none
 )
 
+// PublicKeyCredentialHints represents an entry of the hints member, which conveys the Relying Party's belief about
+// how the user will satisfy the request, in descending order of preference.
+//
+// The IDL types the hints member as a sequence of strings rather than as this enumeration, and requires clients to
+// ignore values they do not recognise, so values are deliberately not validated against the constants below: a
+// Relying Party may send a hint ratified after this release, or one a particular user agent understands. Clients
+// also ignore the second and later appearances of a repeated hint.
+//
+// Hints may contradict the authenticator attachment and the transports of the allowed credentials. Where they do,
+// a client which implements hints gives the hints precedence; see
+// [PublicKeyCredentialHints.AuthenticatorAttachment] for how a registration ceremony pairs the two for the benefit
+// of clients which do not.
+//
+// WebAuthn Level 3.
+//
+// Specification: §5.8.7. User-agent Hints Enumeration (https://www.w3.org/TR/webauthn-3/#enum-hints)
 type PublicKeyCredentialHints string
 
 const (
@@ -269,6 +304,26 @@ const (
 	PublicKeyCredentialHintHybrid PublicKeyCredentialHints = "hybrid"
 )
 
+// AuthenticatorAttachment returns the authenticator attachment a Relying Party using this hint during registration
+// SHOULD also set, so user agents which predate hints filter authenticators consistently with the hint. An
+// identifier this library does not model, which includes any hint ratified after this release, returns an empty
+// value rather than a guess.
+//
+// A user agent which does implement hints gives them precedence over the authenticator attachment, so pairing the
+// two cannot narrow a ceremony such a user agent would otherwise honour.
+//
+// Specification: §5.8.7. User-agent Hints Enumeration (https://www.w3.org/TR/webauthn-3/#enum-hints)
+func (h PublicKeyCredentialHints) AuthenticatorAttachment() AuthenticatorAttachment {
+	switch h {
+	case PublicKeyCredentialHintSecurityKey, PublicKeyCredentialHintHybrid:
+		return CrossPlatform
+	case PublicKeyCredentialHintClientDevice:
+		return Platform
+	default:
+		return ""
+	}
+}
+
 func (a *PublicKeyCredentialRequestOptions) GetAllowedCredentialIDs() [][]byte {
 	var allowedCredentialIDs = make([][]byte, len(a.AllowedCredentials))
 
@@ -278,11 +333,6 @@ func (a *PublicKeyCredentialRequestOptions) GetAllowedCredentialIDs() [][]byte {
 
 	return allowedCredentialIDs
 }
-
-// Extensions is a generic type for WebAuthn extensions. The actual contents are defined by each individual extension.
-//
-// Specification: §9. WebAuthn Extensions (https://www.w3.org/TR/webauthn/#extensions)
-type Extensions any
 
 // ServerResponse is a response from a FIDO conformance server.
 type ServerResponse struct {

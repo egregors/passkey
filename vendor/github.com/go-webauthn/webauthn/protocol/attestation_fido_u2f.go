@@ -2,10 +2,13 @@ package protocol
 
 import (
 	"bytes"
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/x509"
 	"fmt"
+	"slices"
+	"time"
 
 	"github.com/go-webauthn/webauthn/metadata"
 	"github.com/go-webauthn/webauthn/protocol/webauthncbor"
@@ -30,7 +33,9 @@ import (
 // Specification: §8.6. FIDO U2F Attestation Statement Format
 //
 // See: https://www.w3.org/TR/webauthn/#sctn-fido-u2f-attestation
-func attestationFormatValidationHandlerFIDOU2F(att AttestationObject, clientDataHash []byte, _ metadata.Provider) (attestationType string, x5cs []any, err error) {
+//
+//nolint:gocyclo
+func attestationFormatValidationHandlerFIDOU2F(att AttestationObject, clientDataHash []byte, mds metadata.Provider, _ AttestationPolicy, signature SignaturePolicy) (attestationType string, x5cs []any, err error) {
 	// Signing procedure. Non-normative verification procedure of expected requirement.
 	// If the credential public key of the attested credential is not of algorithm -7 ("ES256"), stop and return an error.
 	var key webauthncose.EC2PublicKeyData
@@ -40,6 +45,12 @@ func attestationFormatValidationHandlerFIDOU2F(att AttestationObject, clientData
 
 	if webauthncose.COSEAlgorithmIdentifier(key.Algorithm) != webauthncose.AlgES256 {
 		return "", nil, ErrUnsupportedAlgorithm.WithDetails("Non-ES256 Public Key algorithm used")
+	}
+
+	// The credential public key is converted to the raw P-256 point U2F signs over below, so the curve must be P-256
+	// rather than only implied by the length of the coordinates.
+	if webauthncose.COSEEllipticCurve(key.Curve) != webauthncose.P256 {
+		return "", nil, ErrUnsupportedAlgorithm.WithDetails("Credential public key is not on the P-256 curve")
 	}
 
 	var (
@@ -92,6 +103,12 @@ func attestationFormatValidationHandlerFIDOU2F(att AttestationObject, clientData
 		return "", nil, ErrAttestationFormat.WithDetails("Error parsing certificate from ASN.1 data into certificate").WithError(err)
 	}
 
+	// The attestation certificate must be within its validity period, as with the attestation certificates of the
+	// packed and TPM attestation statement formats.
+	if now := time.Now(); attCert.NotBefore.After(now) || attCert.NotAfter.Before(now) {
+		return "", nil, ErrAttestationFormat.WithDetails("Attestation certificate is either no longer valid or not yet valid")
+	}
+
 	// Step 2.3.
 	if attCert.PublicKeyAlgorithm != x509.ECDSA {
 		return "", nil, ErrAttestationFormat.WithDetails("Attestation certificate public key algorithm is not ECDSA")
@@ -138,16 +155,51 @@ func attestationFormatValidationHandlerFIDOU2F(att AttestationObject, clientData
 
 	// Step 6. Verify the sig using verificationData and the certificate public key per section 4.1.4 of [SEC1] with
 	// SHA-256 as the hash function used in step two.
-	if err = attCert.CheckSignature(x509.ECDSAWithSHA256, verificationData.Bytes(), sig); err != nil {
+	if err = certCheckSignature(attCert, x509.ECDSAWithSHA256, verificationData.Bytes(), sig, signature); err != nil {
 		return "", nil, ErrInvalidAttestation.WithDetails(fmt.Sprintf("Signature validation error: %+v", err)).WithError(err)
 	}
 
-	// TODO: Step 7. Optionally, inspect x5c and consult externally provided knowledge to determine whether attStmt
-	//       conveys a Basic or AttCA attestation.
-
+	// Step 7. Optionally, inspect x5c and consult externally provided knowledge to determine whether attStmt conveys a
+	// Basic or AttCA attestation.
+	//
 	// Step 8. If successful, return implementation-specific values representing attestation type Basic, AttCA or
 	// uncertainty, and attestation trust path x5c.
-	return string(metadata.BasicFull), x5c, nil
+	return u2fAttestationType(mds, attCert), x5c, nil
+}
+
+// u2fAttestationType determines whether a FIDO U2F attestation statement conveys a Basic or AttCA attestation by
+// consulting the Metadata Service entry for the attestation certificate, which is the only externally provided
+// knowledge available for an authenticator without an AAGUID.
+//
+// The entry is only looked up when the provider is configured to look up entries by attestation certificate key
+// identifier. The attestation is AttCA only when the entry declares AttCA and not Basic. Every other outcome, including
+// an entry which declares both, is uncertain and conveyed as Basic, which is what this format has always conveyed.
+// A failure to look up the entry is not an error here as the step is optional, and the metadata validation which
+// follows looks up the same entry and reports it.
+func u2fAttestationType(mds metadata.Provider, attCert *x509.Certificate) string {
+	ctx := context.Background()
+
+	extended, ok := mds.(metadata.ExtendedProvider)
+	if !ok || !extended.GetValidateEntryKeyIdentifier(ctx) {
+		return string(metadata.BasicFull)
+	}
+
+	for _, keyIdentifier := range metadataKeyIdentifiers(attCert) {
+		entry, err := extended.GetEntryByKeyIdentifier(ctx, keyIdentifier)
+		if err != nil || entry == nil {
+			continue
+		}
+
+		types := entry.MetadataStatement.AttestationTypes
+
+		if slices.Contains(types, metadata.AttCA) && !slices.Contains(types, metadata.BasicFull) {
+			return string(metadata.AttCA)
+		}
+
+		return string(metadata.BasicFull)
+	}
+
+	return string(metadata.BasicFull)
 }
 
 func init() {

@@ -41,6 +41,52 @@ type Provider interface {
 	ValidateStatusReports(ctx context.Context, reports []StatusReport) (err error)
 }
 
+// The ExtendedProvider is an optional extension of the [Provider] which enables additional validations of the
+// attestation and authenticator data against the metadata. Each validation is only performed when the provider
+// implements this interface and the relevant toggle returns true, so a [Provider] which does not implement this
+// interface performs none of them.
+type ExtendedProvider interface {
+	Provider
+
+	// GetEntryByKeyIdentifier returns a MDS3 payload entry given an attestation certificate key identifier, i.e. the
+	// lowercase hex encoded Subject Key Identifier of the attestation certificate. This is the only means to identify
+	// the entry for authenticators without an AAGUID such as FIDO U2F authenticators.
+	GetEntryByKeyIdentifier(ctx context.Context, keyIdentifier string) (entry *Entry, err error)
+
+	// GetValidateEntryKeyIdentifier returns true if an attestation statement with a zero AAGUID should have its entry
+	// looked up using [ExtendedProvider.GetEntryByKeyIdentifier] with the key identifier of the attestation certificate.
+	GetValidateEntryKeyIdentifier(ctx context.Context) (validate bool)
+
+	// GetValidateStatusCertificateScope returns true if status reports which relate to a specific certificate should
+	// only be considered when that certificate is part of the attestation trust path. When false, or when the trust
+	// path is not available, such status reports apply to every authenticator of the model.
+	GetValidateStatusCertificateScope(ctx context.Context) (validate bool)
+
+	// GetValidateAAGUID returns true if the AAGUID of the authenticator must match the AAGUID values present in the
+	// metadata entry, metadata statement, and authenticatorGetInfo.
+	GetValidateAAGUID(ctx context.Context) (validate bool)
+
+	// GetValidateAttestationFormats returns true if the attestation statement format must be one the authenticator is
+	// known to produce per the authenticatorGetInfo attestationFormats and the protocol family.
+	GetValidateAttestationFormats(ctx context.Context) (validate bool)
+
+	// GetValidateAlgorithms returns true if the credential public key algorithm must be one the authenticator is known
+	// to support per the authenticationAlgorithms and authenticatorGetInfo algorithms.
+	GetValidateAlgorithms(ctx context.Context) (validate bool)
+
+	// GetValidateBackupEligibility returns true if the Backup Eligibility and Backup State flags must be consistent
+	// with the multiDeviceCredentialSupport of the authenticator.
+	GetValidateBackupEligibility(ctx context.Context) (validate bool)
+
+	// GetValidateExtensions returns true if every authenticator extension output must be for an extension the
+	// authenticator is known to support per the supportedExtensions and authenticatorGetInfo extensions.
+	GetValidateExtensions(ctx context.Context) (validate bool)
+
+	// GetValidateUserVerification returns true if the User Verified flag must only be set when the authenticator is
+	// known to be capable of user verification per the userVerificationDetails and authenticatorGetInfo options.
+	GetValidateUserVerification(ctx context.Context) (validate bool)
+}
+
 var (
 	ErrNotInitialized = errors.New("metadata: not initialized")
 )
@@ -58,6 +104,20 @@ type PublicKeyCredentialParameters struct {
 }
 
 type AuthenticatorAttestationTypes []AuthenticatorAttestationType
+
+// HasCertificateTrustPath returns true if any of the attestation types conveys an attestation certificate trust path,
+// i.e. basic_full, attca, or anonca. These are the attestation types whose trust path can be verified against the
+// attestation root certificates of the metadata statement.
+func (t AuthenticatorAttestationTypes) HasCertificateTrustPath() bool {
+	for _, a := range t {
+		switch a {
+		case BasicFull, AttCA, AnonCA:
+			return true
+		}
+	}
+
+	return false
+}
 
 func (t AuthenticatorAttestationTypes) HasBasicFull() bool {
 	for _, a := range t {
@@ -97,7 +157,7 @@ const (
 
 // KeyScope represents the scope of keys generated and maintained by an authenticator model.
 //
-// See: https://fidoalliance.org/specs/mds/fido-metadata-statement-v3.1-ps-20250521.html#sctn-md-keys
+// See: https://fidoalliance.org/specs/mds/fido-metadata-statement-v3.1.1-ps-20260105.html#sctn-md-keys
 type KeyScope string
 
 const (
@@ -118,7 +178,7 @@ const (
 
 // MultiDeviceCredentialSupport describes whether an authenticator supports multi-device credentials (passkeys).
 //
-// See: https://fidoalliance.org/specs/mds/fido-metadata-statement-v3.1-ps-20250521.html#sctn-md-keys
+// See: https://fidoalliance.org/specs/mds/fido-metadata-statement-v3.1.1-ps-20260105.html#sctn-md-keys
 type MultiDeviceCredentialSupport string
 
 const (
@@ -138,7 +198,7 @@ const (
 // AuthenticatorStatus describes the status of an authenticator model as identified by its AAID/AAGUID and potentially
 // some additional information (such as a specific attestation key).
 //
-// See: https://fidoalliance.org/specs/mds/fido-metadata-service-v3.1.1-rd-20251016.html#sctn-authnr-stat
+// See: https://fidoalliance.org/specs/mds/fido-metadata-service-v3.1.1-ps-20260105.html#sctn-authnr-stat
 type AuthenticatorStatus string
 
 const (
@@ -167,7 +227,7 @@ const (
 	// Retired - The authenticator vendor has decided to retire the product, and this authenticator should not be
 	// accepted any longer.
 	//
-	// See: https://fidoalliance.org/specs/mds/fido-metadata-service-v3.1.1-rd-20251016.html#dom-authenticatorstatus-retired
+	// See: https://fidoalliance.org/specs/mds/fido-metadata-service-v3.1.1-ps-20260105.html#dom-authenticatorstatus-retired
 	Retired AuthenticatorStatus = "RETIRED"
 
 	// Revoked - The FIDO Alliance has determined that this authenticator should not be trusted for any reason, for example if it is known to be a fraudulent product or contain a deliberate backdoor.
@@ -219,24 +279,12 @@ var defaultUndesiredAuthenticatorStatus = [...]AuthenticatorStatus{
 
 // IsUndesiredAuthenticatorStatus returns whether the supplied authenticator status is desirable or not.
 func IsUndesiredAuthenticatorStatus(status AuthenticatorStatus) bool {
-	for _, s := range defaultUndesiredAuthenticatorStatus {
-		if s == status {
-			return true
-		}
-	}
-
-	return false
+	return hasStatus(status, defaultUndesiredAuthenticatorStatus[:])
 }
 
 // IsUndesiredAuthenticatorStatusSlice returns whether the supplied authenticator status is desirable or not.
 func IsUndesiredAuthenticatorStatusSlice(status AuthenticatorStatus, values []AuthenticatorStatus) bool {
-	for _, s := range values {
-		if s == status {
-			return true
-		}
-	}
-
-	return false
+	return hasStatus(status, values)
 }
 
 // IsUndesiredAuthenticatorStatusMap returns whether the supplied authenticator status is desirable or not.
@@ -356,6 +404,16 @@ func algKeyCoseDictionary() func(AuthenticationAlgorithm) algKeyCose {
 	return func(key AuthenticationAlgorithm) algKeyCose {
 		return mapping[key]
 	}
+}
+
+// COSEAlgorithmIdentifier returns the COSE algorithm identifier which corresponds to this authentication algorithm, and
+// false if there is no known corresponding identifier. The polymorphic identifier is returned where the COSE registry
+// has both a polymorphic and a fully-specified identifier, i.e. [webauthncose.AlgES256] rather than
+// [webauthncose.AlgESP256].
+func (a AuthenticationAlgorithm) COSEAlgorithmIdentifier() (alg webauthncose.COSEAlgorithmIdentifier, ok bool) {
+	key := algKeyCoseDictionary()(a)
+
+	return key.Algorithm, key.Algorithm != 0
 }
 
 func AlgKeyMatch(key algKeyCose, algs []AuthenticationAlgorithm) bool {

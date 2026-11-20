@@ -73,8 +73,12 @@ func CredentialParametersRecommendedL3() []protocol.CredentialParameter {
 }
 
 // CredentialParametersExtendedL3 returns the WebAuthn Level 3 recommended credential algorithm list (EdDSA, ES256,
-// RS256) extended with all other algorithms supported by this library (ES384, ES512, RS384, RS512, PS256, PS384,
-// PS512). The Level 3 recommended algorithms appear first to indicate preference.
+// RS256) extended with ES384, ES512, RS384, RS512, PS256, PS384, and PS512. The Level 3 recommended algorithms
+// appear first to indicate preference.
+//
+// This library can also verify ES256K and the ML-DSA parameter sets, which no list here requests: they are neither
+// recommended by the specification nor offered by any authenticator in general use, so a Relying Party that wants
+// one names it explicitly.
 func CredentialParametersExtendedL3() []protocol.CredentialParameter {
 	return []protocol.CredentialParameter{
 		{
