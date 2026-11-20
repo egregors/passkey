@@ -20,6 +20,19 @@
 - **Authentication Middleware**: Standard HTTP middleware to protect routes and inject authenticated user IDs into context.
 - **Pluggable Storage**: Interfaces for account persistence and session caching.
 
+> [!NOTE]
+> In general, this library is built on top of two open-source solutions:
+> * Golang WebAuthn Library – https://github.com/go-webauthn/webauthn
+> * JS/TS SimpleWebAuthn client – https://github.com/MasterKale/SimpleWebAuthn
+
+Used in project:
+![Static Badge](https://img.shields.io/badge/Go_WebAuthn-v0.17.4-green)
+![Static Badge](https://img.shields.io/badge/TS%5CJS%20SimpleWebAuthn-v13.3.0-green)
+
+Actual versions:
+![GitHub Release](https://img.shields.io/github/v/release/go-webauthn/webauthn?label=Go%20WebAuthn)
+![npm](https://img.shields.io/npm/v/%40simplewebauthn%2Fbrowser?label=TS%5CJS%20SimpleWebAuthn)
+
 ## Installation
 
 Requires Go 1.25 or newer.
